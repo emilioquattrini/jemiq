@@ -89,6 +89,8 @@ Da **Come funziona → Verifica connessione AI** il browser invia un POST autent
 
 Il controllo condivide protezione di origine e codice di accesso, ha limiti per client e globali, consente una verifica alla volta e termina entro 35 secondi al confine HTTP. Una risposta valida attesta soltanto il collegamento testuale: il riconoscimento fotografico deve ancora superare una scansione effettiva. I rifiuti sono registrati nel log ripulito `Jemiq Gemini text check:`.
 
+La verifica testuale operativa sul commit `33e95af` è riuscita: l’app ha ricevuto `{ ready: true }` dal controllo collegato a Gemini. Il server accetta quindi la richiesta testuale con la configurazione in uso; questo non certifica ancora il riconoscimento. Il passo successivo semplifica soltanto lo schema di generazione: elimina vincoli di cardinalità e numerici e rappresenta `boundingBox` con un tipo array nullable, conservando integralmente i controlli Zod su campi extra, quantità, stringhe e coordinate. Il collaudo fotografico di questa semplificazione è ancora da completare.
+
 ## Studio: evidenze e confini delle prove
 
 I test dei servizi Studio usano risposte simulate. Verificano che una stessa richiesta non avvii una seconda generazione, che un brief differente con la stessa UUID venga rifiutato, che altri browser non possano leggere o annullare il job e che perdita di connessione, timeout, quota e risposta malformata non producano un’immagine di successo fittizia. Il recupero utilizza GET; la scelta di generare una nuova immagine resta esplicita.

@@ -52,24 +52,23 @@ const recognitionSchema = z.object({
   warnings: z.array(shortText(350)).max(12),
 }).strict();
 
-// Only the supported JSON Schema subset is sent. Runtime Zod validation additionally
-// enforces text lengths, nonempty strings, and the relationship between box coordinates.
+// Keep the generation schema compact. Runtime Zod validation enforces object strictness,
+// array sizes, text lengths, nonempty strings and all bounding-box coordinate constraints.
 // Supported schema keywords checked against the official documentation on 2026-10-10:
 // https://ai.google.dev/gemini-api/docs/generate-content/structured-output
 const responseSchema = {
   type: 'object',
-  additionalProperties: false,
   required: ['observations', 'warnings'],
   properties: {
     observations: {
-      type: 'array', maxItems: MAX_OBSERVATIONS,
+      type: 'array',
       description: 'One entry for each separate physical book with readable text. Preserve separate copies.',
       items: {
-        type: 'object', additionalProperties: false,
+        type: 'object',
         required: ['title', 'authors', 'visibleIsbn', 'publisher', 'language', 'evidence', 'position', 'confidence', 'boundingBox'],
         properties: {
           title: { type: ['string', 'null'], description: 'Only the visible title text, at most 300 characters. Null if unreadable.' },
-          authors: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Only printed, readable author names, at most 160 characters each; [] if absent.' },
+          authors: { type: 'array', items: { type: 'string' }, description: 'Only printed, readable author names, at most 160 characters each; [] if absent.' },
           visibleIsbn: { type: ['string', 'null'], description: 'Digits of an ISBN actually readable in the image, with optional spaces/hyphens; at most 32 characters. Never infer from a title or cover.' },
           publisher: { type: ['string', 'null'], description: 'Publisher text actually readable on this book, at most 180 characters.' },
           language: { type: ['string', 'null'], description: 'Language of the visible text, or null when unclear; at most 80 characters.' },
@@ -77,17 +76,14 @@ const responseSchema = {
           position: { type: 'string', description: 'Short Italian position description, at most 160 characters, e.g. Ripiano superiore, terzo da sinistra.' },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Legibility only: high = clearly readable; medium = partly obscured; low = fragments. Not an accuracy probability or an edition match.' },
           boundingBox: {
-            anyOf: [
-              { type: 'array', items: { type: 'number', minimum: 0, maximum: 1000 }, minItems: 4, maxItems: 4 },
-              { type: 'null' },
-            ],
+            type: ['array', 'null'], items: { type: 'number' },
             description: '[ymin,xmin,ymax,xmax] relative to the whole image, normalized to 0..1000, ymin < ymax and xmin < xmax. Null if uncertain.',
           },
         },
       },
     },
     warnings: {
-      type: 'array', maxItems: 12, items: { type: 'string' },
+      type: 'array', items: { type: 'string' },
       description: 'Concise actionable Italian warnings, at most 350 characters each: blur, glare, skew, occlusion, unreadable books, or reaching the 40-book limit. [] when no specific warning is warranted.',
     },
   },
