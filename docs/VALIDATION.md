@@ -2,7 +2,7 @@
 
 ## Esito software e limite attuale
 
-La suite automatica verifica il comportamento del codice con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI. La prima scansione sul servizio Render si è fermata con una richiesta Gemini rifiutata. La correzione del contratto REST descritta sotto deve ancora essere verificata con una nuova scansione nell’ambiente operativo.
+La suite automatica verifica il comportamento del codice con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI. Le scansioni sul servizio Render hanno mostrato una richiesta Gemini rifiutata. Dopo la correzione del formato JSON è stato individuato un secondo parametro incompatibile con il modello, `candidateCount`, ora rimosso. Questa seconda correzione deve ancora essere verificata con una nuova scansione nell’ambiente operativo.
 
 Una richiesta bibliografica reale con ISBN `9780156453806` ha restituito il volume corretto tramite Open Library mentre Google Books rispondeva HTTP 429. Questo prova il fallback per quella richiesta, non la copertura dell’intero catalogo italiano.
 
@@ -12,7 +12,7 @@ La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controlla
 
 | Verifica | Esito |
 | --- | --- |
-| Suite automatica | 151 test superati in 6 file, inclusa la regressione sul formato REST Gemini |
+| Suite automatica | 152 test superati in 6 file, incluse le regressioni sul formato REST e sui parametri ammessi da Gemini 3.8 |
 | TypeScript e build di produzione | Superati su Node 24 |
 | Audit dipendenze di produzione | Nessuna vulnerabilità nota segnalata da `npm audit --omit=dev` |
 | Browser desktop | Chromium 153, viewport 1440 px; avvio del bundle di produzione con CSP attiva |
@@ -38,6 +38,18 @@ Il valore è stato corretto e il contratto viene confrontato con un estratto del
 Il precedente test del payload si aspettava lo stesso valore errato dell'implementazione e non intercettava il difetto. La regressione usa ora un riferimento indipendente. Non sono state eseguite chiamate Gemini con credenziali reali durante questa correzione; dopo l'aggiornamento del servizio Render occorre riprovare la scansione.
 
 Fonti: [riferimento TextResponseFormat](https://ai.google.dev/api/generate-content#TextResponseFormat), [discovery REST v1beta](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta).
+
+## Correzione dei parametri del modello dopo il secondo rifiuto
+
+La richiesta conteneva ancora `generationConfig.candidateCount: 1`. La guida specifica di Gemini 3.8, aggiornata il 9 ottobre 2026, richiede di omettere `candidate_count` per Gemini 3 e successivi. Il discovery generale continua a elencare il campo perché descrive anche modelli precedenti: il controllo del solo enum JSON non intercettava questa incompatibilità.
+
+Rimosso `candidateCount`, mantenendo il modello `gemini-3.8-flash`, l'enum REST `APPLICATION_JSON` e lo schema bibliografico. Non sono stati aggiunti tentativi automatici o chiamate a modelli alternativi.
+
+La nuova regressione usa una fixture ricavata dalle restrizioni documentate del modello e un trasporto simulato che rifiuta i campi non supportati con HTTP 400. Eseguita prima della correzione, fallisce con lo stesso messaggio generico mostrato dall'app; dopo la rimozione del parametro passa. `npm run check` supera 152 test, TypeScript e build.
+
+Questa verifica dimostra la rimozione di un difetto documentato del payload, non il successo di una scansione Gemini reale. Non sono state utilizzate credenziali operative durante la correzione. Il corpo dell'errore di produzione non è disponibile, quindi eventuali problemi di chiave, quota o account restano da verificare soltanto se il rifiuto persiste dopo il deploy aggiornato.
+
+Fonti: [Gemini 3.8 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/latest-model), [Gemini 3.6 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.6).
 
 ## Verifica funzionale
 

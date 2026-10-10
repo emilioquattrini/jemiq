@@ -1,0 +1,9 @@
+{
+  "model": "gemini-3.8-flash",
+  "source": "https://ai.google.dev/gemini-api/docs/generate-content/latest-model",
+  "section": "Migration checklist",
+  "sourceUpdatedAt": "2026-10-09",
+  "retrievedAt": "2026-10-10",
+  "note": "The model guide requires candidate_count to be omitted for Gemini 3 and later. The list uses REST JSON field names.",
+  "unsupportedGenerationFields": ["candidateCount"]
+}

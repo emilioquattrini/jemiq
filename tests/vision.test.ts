@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createVisionService, MAX_IMAGE_BYTES, MAX_OBSERVATIONS, VisionError } from '../server/vision.js';
 import type { Observation } from '../shared/types.js';
 import restDiscovery from './fixtures/gemini-text-response-format.json';
+import modelContract from './fixtures/gemini-3.8-generation-config.json';
 
 // A tiny PNG exercises the transport contract only. These mocked tests do not measure
 // recognition accuracy on photographs, which requires a configured API and real book photos.
@@ -63,6 +64,26 @@ describe('vision recognition contract', () => {
     expect(jsonIndex).toBeGreaterThanOrEqual(0);
     expect(restDiscovery.mimeType.enum).toContain(mimeType);
     expect(mimeType).toBe(restDiscovery.mimeType.enum[jsonIndex]);
+  });
+
+  it('passes the Gemini 3.8 model contract when unsupported fields are rejected', async () => {
+    // The general discovery schema covers several model generations. The model's
+    // migration guide adds restrictions that the MIME-enum fixture cannot verify.
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (_url, request) => {
+      const body = JSON.parse(String(request?.body));
+      const unsupported = modelContract.unsupportedGenerationFields.find((field) =>
+        Object.hasOwn(body.generationConfig, field));
+      if (unsupported) return Response.json({ error: {
+        code: 400, status: 'INVALID_ARGUMENT', message: `Unsupported field: ${unsupported}`,
+      } }, { status: 400 });
+      return Response.json(envelope({ observations: [observed], warnings: [] }));
+    });
+    const service = createVisionService({
+      apiKey: 'private-test-key', model: modelContract.model, fetchImpl: fetchMock,
+    });
+
+    await expect(service.recognize(image, 'shelf')).resolves.toEqual({ observations: [observed], warnings: [] });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('keeps partial observations incomplete instead of requiring invented fields', async () => {

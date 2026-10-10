@@ -265,7 +265,9 @@ export function createVisionService(options: VisionOptions) {
             : 'Trascrivi i libri visibili su questo tavolo. Leggi copertine e dorsi esposti. Non dedurre quanti libri ci sono sotto una pila.' },
         ] }],
         generationConfig: {
-          candidateCount: 1,
+          // Gemini 3+ does not support candidateCount, though the general REST discovery
+          // still lists it for older models. Omit it and use the single default result.
+          // https://ai.google.dev/gemini-api/docs/generate-content/latest-model
           maxOutputTokens: 16_384,
           // REST TextResponseFormat requires an enum, unlike inlineData's MIME string.
           // https://ai.google.dev/api/generate-content#TextResponseFormat

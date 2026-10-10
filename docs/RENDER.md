@@ -51,7 +51,9 @@ Per un servizio operativo è raccomandata anche una chiave `GOOGLE_BOOKS_API_KEY
 
 Configurazione preparata il 10 ottobre 2026 sulla documentazione ufficiale e validata rispetto allo schema JSON Render. Avvio di produzione verificato localmente con `HOST=0.0.0.0`, porta assegnata e origine HTTPS: homepage e health check raggiungibili, origine corretta e codice valido ammessi, origine estranea respinta con 403, codice assente respinto con 401. Nessuna chiamata a Gemini o ai cataloghi durante questa prova.
 
-Il servizio è stato creato su Render e l'interfaccia è stata aperta sul telefono. La prima scansione ha restituito un rifiuto da Gemini; nel codice è stato corretto un valore non valido del formato di output REST. Per applicare la correzione, apri il servizio **jemiq → Deploys → Manual Deploy → Deploy latest commit**, attendi **Live**, ricarica Jemiq e premi **Riprova** sulla scansione conservata.
+Il servizio è stato creato su Render e l'interfaccia è stata aperta sul telefono. Dopo la correzione del formato di output REST, una scansione successiva ha mostrato ancora un rifiuto. Nel codice è stato individuato e rimosso anche `candidateCount`, parametro non supportato dal modello Gemini 3.8. La correzione precedente del MIME enum resta valida.
+
+Per applicare l'ultima correzione, apri il servizio **jemiq → Deploys → Manual Deploy → Deploy latest commit** sul ramo **codex/jemiq-product**. Il nuovo commit si intitola **Rimuove il parametro non supportato da Gemini 3**. Attendi **Live**, ricarica Jemiq e premi **Riprova** sulla scansione conservata. Il solo aggiornamento del codice su GitHub non modifica il processo già in esecuzione: gli aggiornamenti automatici sono disabilitati.
 
 La correzione deve ancora essere confermata con una scansione nel servizio aggiornato. Restano da verificare le prestazioni, il proxy effettivo e la qualità del riconoscimento su foto reali. I dettagli sono nel [protocollo di collaudo](VALIDATION.md).
 
