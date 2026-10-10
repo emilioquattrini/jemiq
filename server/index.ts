@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import { createVisionService } from './vision';
+import { createVisionCheckService } from './vision-check';
 import { createCatalogService } from './catalog';
 import { createStudioBriefService } from './studio-brief';
 import { createStudioImageService } from './studio-image';
@@ -21,12 +22,17 @@ const vision = createVisionService({
   model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
   onDiagnostic: (diagnostic) => console.warn('Jemiq Gemini rejection:', JSON.stringify(diagnostic)),
 });
+const visionCheck = createVisionCheckService({
+  apiKey: process.env.GEMINI_API_KEY || '',
+  model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+  onDiagnostic: (diagnostic) => console.warn('Jemiq Gemini text check:', JSON.stringify(diagnostic)),
+});
 const catalog = createCatalogService({ googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY, userAgent: 'Jemiq/1.0 (https://github.com/emilioquattrini/jemiq)' });
 const studioBrief = createStudioBriefService({ apiKey: process.env.GEMINI_API_KEY || '', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash', catalog });
 const imageApiKey = process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || '';
 const studioImage = createStudioImageService({ apiKey: imageApiKey, model: process.env.GEMINI_IMAGE_MODEL || 'gemini-nano-banana-2.1' });
 const studioJobs = createStudioJobManager({ generate: studioImage.generate, maxActive: 1, maxResults: 4, maxTotalBytes: 32 * 1024 * 1024 });
-const app = createApp({ recognize: vision.recognize, catalog, recognitionReady: !!process.env.GEMINI_API_KEY, accessToken: process.env.JEMIQ_ACCESS_TOKEN, production, origin: process.env.APP_ORIGIN || undefined, trustProxy, studio: { ready: !!imageApiKey && process.env.STUDIO_ENABLED !== 'false', createBrief: studioBrief.create, jobs: studioJobs } });
+const app = createApp({ recognize: vision.recognize, checkVision: visionCheck.check, catalog, recognitionReady: !!process.env.GEMINI_API_KEY, accessToken: process.env.JEMIQ_ACCESS_TOKEN, production, origin: process.env.APP_ORIGIN || undefined, trustProxy, studio: { ready: !!imageApiKey && process.env.STUDIO_ENABLED !== 'false', createBrief: studioBrief.create, jobs: studioJobs } });
 const server = createServer(app);
 
 if (production) {

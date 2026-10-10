@@ -148,7 +148,7 @@ function validateImage(image: { data: string; mimeType: string }): void {
   }
 }
 
-function upstreamError(response: Response): VisionError {
+export function upstreamError(response: Response): VisionError {
   // Do not expose an upstream error body: it can echo prompts, credentials or image data.
   const seconds = Number(response.headers.get('retry-after'));
   const retryAfter = Number.isFinite(seconds) && seconds > 0 ? Math.min(3600, Math.ceil(seconds)) : undefined;
@@ -166,7 +166,7 @@ function upstreamError(response: Response): VisionError {
     'Il servizio di riconoscimento non è disponibile al momento. Riprova tra poco.', 503);
 }
 
-async function readBoundedJson(response: Response, signal: AbortSignal, maxBytes = MAX_RESPONSE_BYTES): Promise<unknown> {
+export async function readBoundedJson(response: Response, signal: AbortSignal, maxBytes = MAX_RESPONSE_BYTES): Promise<unknown> {
   if (signal.aborted) {
     void response.body?.cancel().catch(() => undefined);
     throw signal.reason;

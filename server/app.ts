@@ -12,6 +12,7 @@ interface AppOptions {
   recognize: (image: { data: string; mimeType: string }, mode: 'shelf' | 'table', signal?: AbortSignal) => Promise<{ observations: Observation[]; warnings: string[] }>;
   catalog: { enrich: (observation: Observation, signal?: AbortSignal) => Promise<BookRecord>; search: (query: string, signal?: AbortSignal) => Promise<CatalogCandidate[]> };
   recognitionReady: boolean;
+  checkVision?: (signal?: AbortSignal) => Promise<{ ready: true }>;
   accessToken?: string;
   production?: boolean;
   origin?: string;
@@ -72,6 +73,9 @@ export function createApp(options: AppOptions) {
   const scanBudget = fixedWindow(20, 10 * 60_000);
   const globalBudget = fixedWindow(100, 60 * 60_000);
   const searchBudget = fixedWindow(100, 10 * 60_000);
+  const visionCheckBudget = fixedWindow(5, 10 * 60_000);
+  const visionCheckGlobalBudget = fixedWindow(20, 10 * 60_000);
+  let visionCheckActive = false;
   const briefBudget = fixedWindow(30, 10 * 60_000);
   const briefGlobalBudget = fixedWindow(100, 60 * 60_000);
   const studioBudget = fixedWindow(10, 10 * 60_000);
@@ -113,6 +117,25 @@ export function createApp(options: AppOptions) {
   });
 
   app.use('/api', express.json({ limit: '12mb', strict: true }));
+  app.post('/api/vision/check', async (request, response, next) => {
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(new DOMException('Check timeout', 'TimeoutError')), 35_000);
+    const disconnected = () => { if (!response.writableEnded) controller.abort(); };
+    response.on('close', disconnected);
+    let admitted = false;
+    try {
+      if (!recognitionReady || !options.checkVision) throw new HttpError(503, 'VISION_NOT_CONFIGURED', 'Il servizio di lettura non è configurato.');
+      if (!z.object({}).strict().safeParse(request.body).success) throw new HttpError(400, 'INVALID_REQUEST', 'La richiesta di verifica non è valida.');
+      if (visionCheckActive) throw new HttpError(429, 'VISION_CHECK_BUSY', 'È già in corso una verifica. Attendi la conclusione.');
+      if (!visionCheckBudget(request.ip ?? 'unknown') || !visionCheckGlobalBudget('all')) throw new HttpError(429, 'VISION_CHECK_RATE_LIMIT', 'Sono state eseguite molte verifiche. Attendi qualche minuto.');
+      visionCheckActive = true; admitted = true;
+      response.json(await withAbort(options.checkVision(controller.signal), controller.signal));
+    } catch (error) { next(error); }
+    finally {
+      clearTimeout(deadline); response.off('close', disconnected); controller.abort();
+      if (admitted) visionCheckActive = false;
+    }
+  });
   const scanSchema = z.object({
     image: z.object({ data: z.string().min(1).max(11_200_000), mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']) }).strict(),
     mode: z.enum(['shelf', 'table']),

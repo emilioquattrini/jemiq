@@ -31,6 +31,22 @@ export async function getHealth(): Promise<HealthStatus> {
   return z.object({ recognitionReady: z.boolean(), accessRequired: z.boolean(), studioReady: z.boolean().default(false) }).parse(await response.json());
 }
 
+export async function checkVisionConnection(signal?: AbortSignal): Promise<{ ready: true }> {
+  const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(40_000)]) : AbortSignal.timeout(40_000);
+  try {
+    const response = await fetch('/api/vision/check', {
+      method: 'POST', headers: headers(), body: '{}', signal: requestSignal,
+    });
+    if (!response.ok) return await responseError(response);
+    const result = z.object({ ready: z.literal(true) }).strict().safeParse(await response.json());
+    if (!result.success) throw new ApiError('La verifica ha restituito una risposta non valida.', 502);
+    return result.data;
+  } catch (error) {
+    if (signal?.aborted || error instanceof ApiError) throw error;
+    throw new ApiError(requestSignal.aborted ? 'La verifica ha impiegato troppo tempo.' : 'Non riesco a contattare il servizio. Controlla la connessione.');
+  }
+}
+
 /** Consume actual server events. An interrupted stream must not become a successful scan. */
 export async function readScanStream(response: Response, onEvent: (event: ScanEvent) => void, signal?: AbortSignal) {
   if (!response.ok) return responseError(response);

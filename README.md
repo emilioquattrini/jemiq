@@ -119,7 +119,7 @@ Il Blueprint [`render.yaml`](render.yaml) seleziona un servizio Node 24 a Franco
 
 Il link usa il ramo `codex/jemiq-product`. Gli aggiornamenti automatici sono disabilitati. Il piano Free si sospende dopo 15 minuti senza traffico e richiede circa un minuto per riattivarsi; è adatto al collaudo, mentre l'uso quotidiano richiede un servizio sempre attivo. L'API Gemini ha costi e quote separati.
 
-**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. La configurazione Studio riutilizza i segreti già presenti; il modello immagini è predefinito nel codice. Il riconoscimento usa `responseMimeType` e `responseJsonSchema` come l’SDK ufficiale Google e omette `candidateCount`, non supportato da Gemini 3.8. Per applicare le correzioni usa **Manual Deploy → Deploy latest commit**, poi verifica una scansione reale. La versione comprensiva di Studio è stata distribuita; la nuova rappresentazione della richiesta Gemini e le generazioni Studio devono ancora superare il collaudo operativo: dettagli nel [protocollo di collaudo](docs/VALIDATION.md).
+**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. La configurazione Studio riutilizza i segreti già presenti; il modello immagini è predefinito nel codice. Il riconoscimento usa `responseMimeType` e `responseJsonSchema` come l’SDK ufficiale Google e omette `candidateCount`, non supportato da Gemini 3.8. Per applicare le correzioni usa **Manual Deploy → Deploy latest commit**, poi verifica una scansione reale. La versione comprensiva di Studio è stata distribuita, ma le scansioni reali fino al commit `3c78d3b` sono ancora rifiutate. **Come funziona → Verifica connessione AI** avvia un controllo esplicito di solo testo per isolare il problema. Riconoscimento e generazioni Studio restano da collaudare: dettagli nel [protocollo di collaudo](docs/VALIDATION.md).
 
 ## Limiti operativi
 
@@ -158,7 +158,7 @@ Test di checksum, conflitti di edizione/autore/editore/lingua/formato, fallback,
 
 L’override di `uuid` a 11.1.1 risolve la dipendenza vulnerabile di ExcelJS conservando l’interfaccia CommonJS `v4`. L’esportazione è verificata con round trip del workbook. ExcelJS viene caricato solo quando si richiede XLSX.
 
-Esito del collaudo software del 10 ottobre 2026: **346 test superati in 13 file**, TypeScript e build di produzione riusciti, incluse le regressioni sul formato REST e sui parametri ammessi dai modelli. `npm audit --omit=dev --audit-level=high` non segnala vulnerabilità note.
+Esito del collaudo software del 10 ottobre 2026: **374 test superati in 14 file**, TypeScript e build di produzione riusciti, incluse le regressioni sul formato REST e sui parametri ammessi dai modelli. `npm audit --omit=dev --audit-level=high` non segnala vulnerabilità note.
 
 In Chromium sono verificati il percorso grafico su immagini di prova, la conservazione di pixel e trasparenza nel PNG intermedio, il ritaglio prospettico e i due export JPEG. Il flusso Studio completo è stato provato su desktop 1440 × 1050 e viewport mobile 390 × 844 e 320 × 740, con provider simulato: salvataggio delle bozze, doppio clic con un solo POST, recupero dopo perdita della risposta o ricarica durante la generazione, cancellazione e download Post/Storia. I tre passaggi non presentano overflow orizzontale; non sono stati rilevati errori JavaScript. Qualità, tempi e costo delle immagini AI reali restano da misurare. [Protocollo ed evidenze](docs/VALIDATION.md).
 

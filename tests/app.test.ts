@@ -224,6 +224,119 @@ describe('HTTP access and validation', () => {
   });
 });
 
+describe('explicit vision connection checks', () => {
+  it('runs an authenticated explicit check and returns its successful result', async () => {
+    const checkVision = vi.fn<NonNullable<AppOptions['checkVision']>>().mockResolvedValue({ ready: true });
+    const app = await launch({ production: true, accessToken, checkVision });
+    const response = await app.post('/api/vision/check', {}, { headers: authorized });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ready: true });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(checkVision).toHaveBeenCalledOnce();
+    expect(checkVision.mock.calls[0][0]).toBeInstanceOf(AbortSignal);
+    expect(app.recognize).not.toHaveBeenCalled();
+  });
+
+  it('requires authentication and the permitted origin before checking the provider', async () => {
+    const checkVision = vi.fn<NonNullable<AppOptions['checkVision']>>().mockResolvedValue({ ready: true });
+    const app = await launch({ production: true, accessToken, checkVision });
+    const unauthorizedHeaders: Record<string, string>[] = [{}, { Authorization: 'Bearer incorrect-code' }];
+    for (const headers of unauthorizedHeaders) {
+      const response = await app.post('/api/vision/check', {}, { headers });
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ code: 'ACCESS_REQUIRED' });
+    }
+    const crossSiteHeaders: Record<string, string>[] = [
+      { ...authorized, Origin: 'https://unrelated.example' },
+      { ...authorized, 'Sec-Fetch-Site': 'cross-site' },
+    ];
+    for (const headers of crossSiteHeaders) {
+      const response = await app.post('/api/vision/check', {}, { headers });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: 'ORIGIN_FORBIDDEN' });
+    }
+    expect(checkVision).not.toHaveBeenCalled();
+  });
+
+  it('rejects client-supplied models and prompts before checking the provider', async () => {
+    const checkVision = vi.fn<NonNullable<AppOptions['checkVision']>>().mockResolvedValue({ ready: true });
+    const app = await launch({ checkVision });
+    for (const payload of [{ model: 'client-selected-model' }, { prompt: 'client-supplied-prompt' }, []]) {
+      const response = await app.post('/api/vision/check', payload);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'INVALID_REQUEST' });
+    }
+    expect(checkVision).not.toHaveBeenCalled();
+  });
+
+  it('requires both recognition configuration and an available check function', async () => {
+    const checkVision = vi.fn<NonNullable<AppOptions['checkVision']>>().mockResolvedValue({ ready: true });
+    for (const options of [{ recognitionReady: false, checkVision }, { recognitionReady: true }]) {
+      const app = await launch(options);
+      const response = await app.post('/api/vision/check', {});
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ code: 'VISION_NOT_CONFIGURED' });
+    }
+    expect(checkVision).not.toHaveBeenCalled();
+  });
+
+  it('does not contact the provider when public health is requested', async () => {
+    const checkVision = vi.fn<NonNullable<AppOptions['checkVision']>>().mockResolvedValue({ ready: true });
+    const app = await launch({ production: true, accessToken, checkVision });
+    const health = await fetch(app.baseUrl + '/api/health');
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual({ recognitionReady: true, accessRequired: true, studioReady: false });
+    expect(checkVision).not.toHaveBeenCalled();
+    expect(app.recognize).not.toHaveBeenCalled();
+  });
+
+  it('bounds checks to five per client and twenty globally within ten minutes', async () => {
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    for (const [limit, differentClients] of [[5, false], [20, true]] as const) {
+      const checkVision = vi.fn<NonNullable<AppOptions['checkVision']>>().mockResolvedValue({ ready: true });
+      const app = await launch({ trustProxy: 1, checkVision });
+      const headers = (index: number) => ({ 'X-Forwarded-For': `192.0.2.${differentClients ? index + 1 : 1}` });
+      for (let count = 0; count < limit; count++) {
+        const response = await app.post('/api/vision/check', {}, { headers: headers(count) });
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ ready: true });
+      }
+      const blocked = await app.post('/api/vision/check', {}, { headers: headers(limit) });
+      expect(blocked.status).toBe(429);
+      expect(await blocked.json()).toMatchObject({ code: 'VISION_CHECK_RATE_LIMIT' });
+      expect(checkVision).toHaveBeenCalledTimes(limit);
+      vi.mocked(Date.now).mockReturnValue(now + 10 * 60_000 + 1);
+      const next = await app.post('/api/vision/check', {}, { headers: headers(limit) });
+      expect(next.status).toBe(200);
+      expect(await next.json()).toEqual({ ready: true });
+      expect(checkVision).toHaveBeenCalledTimes(limit + 1);
+      vi.mocked(Date.now).mockReturnValue(now);
+    }
+  });
+
+  it('allows only one active check and releases capacity after completion', async () => {
+    const started = deferred<void>();
+    const gate = deferred<{ ready: true }>();
+    const checkVision = vi.fn<NonNullable<AppOptions['checkVision']>>().mockResolvedValue({ ready: true });
+    checkVision.mockImplementationOnce(() => { started.resolve(); return gate.promise; });
+    const app = await launch({ trustProxy: 1, checkVision });
+    const first = app.post('/api/vision/check', {}, { headers: { 'X-Forwarded-For': '192.0.2.1' } });
+    await started.promise;
+    try {
+      const blocked = await app.post('/api/vision/check', {}, { headers: { 'X-Forwarded-For': '192.0.2.2' } });
+      expect(blocked.status).toBe(429);
+      expect(await blocked.json()).toMatchObject({ code: 'VISION_CHECK_BUSY' });
+      expect(checkVision).toHaveBeenCalledOnce();
+    } finally { gate.resolve({ ready: true }); }
+    expect(await (await first).json()).toEqual({ ready: true });
+    const next = await app.post('/api/vision/check', {}, { headers: { 'X-Forwarded-For': '192.0.2.2' } });
+    expect(next.status).toBe(200);
+    expect(await next.json()).toEqual({ ready: true });
+    expect(checkVision).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('progressive scanning over real HTTP', () => {
   it('streams the first book while other lookups are still pending, then completes all three', async () => {
     const app = await launch({ enrichmentConcurrency: 2 });
