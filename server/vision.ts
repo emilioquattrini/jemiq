@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 import type { Observation } from '../shared/types.js';
+import { summarizeVisionRejection, type VisionDiagnostic } from './vision-diagnostics.js';
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_OBSERVATIONS = 40;
@@ -165,12 +166,12 @@ function upstreamError(response: Response): VisionError {
     'Il servizio di riconoscimento non è disponibile al momento. Riprova tra poco.', 503);
 }
 
-async function readBoundedJson(response: Response, signal: AbortSignal): Promise<unknown> {
+async function readBoundedJson(response: Response, signal: AbortSignal, maxBytes = MAX_RESPONSE_BYTES): Promise<unknown> {
   if (signal.aborted) {
     void response.body?.cancel().catch(() => undefined);
     throw signal.reason;
   }
-  if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES || !response.body) {
+  if (Number(response.headers.get('content-length')) > maxBytes || !response.body) {
     void response.body?.cancel().catch(() => undefined);
     throw invalidResponse();
   }
@@ -187,7 +188,7 @@ async function readBoundedJson(response: Response, signal: AbortSignal): Promise
       if (signal.aborted) throw signal.reason;
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
-      if (bytes > MAX_RESPONSE_BYTES) throw invalidResponse();
+      if (bytes > maxBytes) throw invalidResponse();
       try { text += decoder.decode(chunk.value, { stream: true }); } catch { throw invalidResponse(); }
     }
     finished = true;
@@ -238,6 +239,7 @@ export interface VisionOptions {
   model: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  onDiagnostic?: (diagnostic: VisionDiagnostic) => void;
 }
 
 export function createVisionService(options: VisionOptions) {
@@ -297,7 +299,17 @@ export function createVisionService(options: VisionOptions) {
             redirect: 'error',
           });
           if (!response.ok) {
-            void response.body?.cancel().catch(() => undefined);
+            if (options.onDiagnostic) {
+              let rejection: unknown;
+              try {
+                rejection = await readBoundedJson(response,
+                  AbortSignal.any([controller.signal, AbortSignal.timeout(1500)]), 16 * 1024);
+              } catch { /* Preserve the HTTP error even when its diagnostic body is unusable. */ }
+              try { options.onDiagnostic(summarizeVisionRejection(response.status, rejection)); }
+              catch { /* Logging must not alter the request result. */ }
+            } else {
+              void response.body?.cancel().catch(() => undefined);
+            }
             throw upstreamError(response);
           }
           return parseRecognition(await readBoundedJson(response, controller.signal));

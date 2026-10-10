@@ -158,7 +158,7 @@ Test di checksum, conflitti di edizione/autore/editore/lingua/formato, fallback,
 
 L’override di `uuid` a 11.1.1 risolve la dipendenza vulnerabile di ExcelJS conservando l’interfaccia CommonJS `v4`. L’esportazione è verificata con round trip del workbook. ExcelJS viene caricato solo quando si richiede XLSX.
 
-Esito del collaudo software del 10 ottobre 2026: **338 test superati in 12 file**, TypeScript e build di produzione riusciti, incluse le regressioni sul formato REST e sui parametri ammessi dai modelli. `npm audit --omit=dev --audit-level=high` non segnala vulnerabilità note.
+Esito del collaudo software del 10 ottobre 2026: **343 test superati in 13 file**, TypeScript e build di produzione riusciti, incluse le regressioni sul formato REST e sui parametri ammessi dai modelli. `npm audit --omit=dev --audit-level=high` non segnala vulnerabilità note.
 
 In Chromium sono verificati il percorso grafico su immagini di prova, la conservazione di pixel e trasparenza nel PNG intermedio, il ritaglio prospettico e i due export JPEG. Il flusso Studio completo è stato provato su desktop 1440 × 1050 e viewport mobile 390 × 844 e 320 × 740, con provider simulato: salvataggio delle bozze, doppio clic con un solo POST, recupero dopo perdita della risposta o ricarica durante la generazione, cancellazione e download Post/Storia. I tre passaggi non presentano overflow orizzontale; non sono stati rilevati errori JavaScript. Qualità, tempi e costo delle immagini AI reali restano da misurare. [Protocollo ed evidenze](docs/VALIDATION.md).
 

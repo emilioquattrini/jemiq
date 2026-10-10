@@ -16,7 +16,11 @@ const host = process.env.HOST || '127.0.0.1';
 const trustProxy = Number(process.env.TRUST_PROXY || 0);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT deve essere un numero tra 1 e 65535.');
 if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 5) throw new Error('TRUST_PROXY deve indicare il numero di proxy fidati (0–5).');
-const vision = createVisionService({ apiKey: process.env.GEMINI_API_KEY || '', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash' });
+const vision = createVisionService({
+  apiKey: process.env.GEMINI_API_KEY || '',
+  model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+  onDiagnostic: (diagnostic) => console.warn('Jemiq Gemini rejection:', JSON.stringify(diagnostic)),
+});
 const catalog = createCatalogService({ googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY, userAgent: 'Jemiq/1.0 (https://github.com/emilioquattrini/jemiq)' });
 const studioBrief = createStudioBriefService({ apiKey: process.env.GEMINI_API_KEY || '', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash', catalog });
 const imageApiKey = process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || '';
