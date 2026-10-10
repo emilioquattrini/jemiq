@@ -2,7 +2,7 @@
 
 ## Esito software e limite attuale
 
-La suite automatica verifica il comportamento del codice con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI. La nuova implementazione deve ancora essere provata su foto reali con la chiave Gemini dell’ambiente operativo.
+La suite automatica verifica il comportamento del codice con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI. La prima scansione sul servizio Render si è fermata con una richiesta Gemini rifiutata. La correzione del contratto REST descritta sotto deve ancora essere verificata con una nuova scansione nell’ambiente operativo.
 
 Una richiesta bibliografica reale con ISBN `9780156453806` ha restituito il volume corretto tramite Open Library mentre Google Books rispondeva HTTP 429. Questo prova il fallback per quella richiesta, non la copertura dell’intero catalogo italiano.
 
@@ -12,7 +12,7 @@ La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controlla
 
 | Verifica | Esito |
 | --- | --- |
-| Suite automatica | 150 test superati in 6 file |
+| Suite automatica | 151 test superati in 6 file, inclusa la regressione sul formato REST Gemini |
 | TypeScript e build di produzione | Superati su Node 24 |
 | Audit dipendenze di produzione | Nessuna vulnerabilità nota segnalata da `npm audit --omit=dev` |
 | Browser desktop | Chromium 153, viewport 1440 px; avvio del bundle di produzione con CSP attiva |
@@ -28,6 +28,16 @@ La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controlla
 Le schermate in [screenshots](screenshots/) provengono dall’app in esecuzione, con dati della demo esplicitamente indicati. Non sono risultati di riconoscimento su fotografie reali. I test browser non hanno rilevato errori JavaScript nell’app.
 
 Restano da verificare nell’ambiente operativo: riconoscimento Gemini con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali, build Docker e comportamento del proxy di hosting.
+
+## Correzione del contratto REST Gemini
+
+La prima scansione reale ha mostrato un errore di richiesta rifiutata. È stato individuato un difetto concreto nel payload: `generationConfig.responseFormat.text.mimeType` conteneva `application/json`, mentre il riferimento REST e il discovery ufficiale richiedono l'enum `APPLICATION_JSON`.
+
+Il valore è stato corretto e il contratto viene confrontato con un estratto del discovery Google, revisione `20261008`. I MIME dell'immagine (`image/jpeg`, `image/png`, `image/webp`) restano stringhe IANA: il requisito dell'enum riguarda esclusivamente il formato dell'output. Lo schema bibliografico e i controlli ISBN non sono coinvolti.
+
+Il precedente test del payload si aspettava lo stesso valore errato dell'implementazione e non intercettava il difetto. La regressione usa ora un riferimento indipendente. Non sono state eseguite chiamate Gemini con credenziali reali durante questa correzione; dopo l'aggiornamento del servizio Render occorre riprovare la scansione.
+
+Fonti: [riferimento TextResponseFormat](https://ai.google.dev/api/generate-content#TextResponseFormat), [discovery REST v1beta](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta).
 
 ## Verifica funzionale
 

@@ -98,7 +98,7 @@ Il Blueprint [`render.yaml`](render.yaml) seleziona un servizio Node 24 a Franco
 
 Il link usa il ramo `codex/jemiq-product`. Gli aggiornamenti automatici sono disabilitati. Il piano Free si sospende dopo 15 minuti senza traffico e richiede circa un minuto per riattivarsi; è adatto al collaudo, mentre l'uso quotidiano richiede un servizio sempre attivo. L'API Gemini ha costi e quote separati.
 
-**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. La configurazione è pronta, ma account, credenziali e primo deploy su Render devono ancora essere completati.
+**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. Il servizio è stato creato e l'interfaccia aperta sul telefono. Una correzione al formato della richiesta Gemini deve essere distribuita tramite **Manual Deploy → Deploy latest commit**, poi verificata con una scansione reale; i dettagli sono nel [protocollo di collaudo](docs/VALIDATION.md).
 
 ## Limiti operativi
 
@@ -133,7 +133,7 @@ Test di checksum, conflitti di edizione/autore/editore/lingua/formato, fallback,
 
 L’override di `uuid` a 11.1.1 risolve la dipendenza vulnerabile di ExcelJS conservando l’interfaccia CommonJS `v4`. L’esportazione è verificata con round trip del workbook. ExcelJS viene caricato solo quando si richiede XLSX.
 
-Esito del collaudo software del 10 ottobre 2026: **150 test superati**, build di produzione riuscita e nessuna vulnerabilità nota nelle dipendenze di produzione. Verificati anche modifica, download e persistenza nel browser, con viewport desktop e mobile. Per dettagli e verifica sul campo: [protocollo di collaudo](docs/VALIDATION.md).
+Esito del collaudo software del 10 ottobre 2026: **151 test superati**, inclusa la regressione sul formato REST Gemini, build di produzione riuscita e nessuna vulnerabilità nota nelle dipendenze di produzione. Verificati anche modifica, download e persistenza nel browser, con viewport desktop e mobile. Per dettagli e verifica sul campo: [protocollo di collaudo](docs/VALIDATION.md).
 
 ## Anteprima
 

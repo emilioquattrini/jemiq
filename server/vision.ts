@@ -53,7 +53,7 @@ const recognitionSchema = z.object({
 
 // Only the supported JSON Schema subset is sent. Runtime Zod validation additionally
 // enforces text lengths, nonempty strings, and the relationship between box coordinates.
-// REST format checked against the official documentation on 2026-10-10:
+// Supported schema keywords checked against the official documentation on 2026-10-10:
 // https://ai.google.dev/gemini-api/docs/generate-content/structured-output
 const responseSchema = {
   type: 'object',
@@ -160,7 +160,7 @@ function upstreamError(response: Response): VisionError {
   if (response.status === 408 || response.status === 504) return new VisionError('VISION_TIMEOUT',
     'Il servizio ha impiegato troppo tempo. Riprova con una foto più piccola o con meno libri.', 504);
   if (response.status === 400 || response.status === 413 || response.status === 422) return new VisionError('VISION_REQUEST_REJECTED',
-    'Il servizio non ha accettato questa foto o la configurazione del modello. Prova un altro JPEG; se persiste, verifica la configurazione Gemini.', 502);
+    'Gemini non ha accettato la richiesta di riconoscimento. Occorre verificare la configurazione del servizio sul server.', 502);
   return new VisionError('VISION_UNAVAILABLE',
     'Il servizio di riconoscimento non è disponibile al momento. Riprova tra poco.', 503);
 }
@@ -267,7 +267,9 @@ export function createVisionService(options: VisionOptions) {
         generationConfig: {
           candidateCount: 1,
           maxOutputTokens: 16_384,
-          responseFormat: { text: { mimeType: 'application/json', schema: responseSchema } },
+          // REST TextResponseFormat requires an enum, unlike inlineData's MIME string.
+          // https://ai.google.dev/api/generate-content#TextResponseFormat
+          responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: responseSchema } },
         },
       });
 

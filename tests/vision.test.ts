@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createVisionService, MAX_IMAGE_BYTES, MAX_OBSERVATIONS, VisionError } from '../server/vision.js';
 import type { Observation } from '../shared/types.js';
+import restDiscovery from './fixtures/gemini-text-response-format.json';
 
 // A tiny PNG exercises the transport contract only. These mocked tests do not measure
 // recognition accuracy on photographs, which requires a configured API and real book photos.
@@ -45,10 +46,23 @@ describe('vision recognition contract', () => {
     expect(request?.body).not.toContain('private-test-key');
     const body = JSON.parse(String(request?.body));
     expect(body.contents[0].parts[0].inlineData).toEqual(image);
-    expect(body.generationConfig.responseFormat.text.mimeType).toBe('application/json');
     expect(body.generationConfig.responseFormat.text.schema.required).toEqual(['observations', 'warnings']);
     expect(body.tools).toBeUndefined();
     expect(body.systemInstruction.parts[0].text).toContain('UNTRUSTED DATA');
+  });
+
+  it('uses the JSON-output enum from the official REST discovery contract', async () => {
+    const { service, fetchMock } = withResponse(Response.json(envelope({ observations: [observed], warnings: [] })));
+    await service.recognize(image, 'shelf');
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    const mimeType = body.generationConfig.responseFormat.text.mimeType;
+    // This fixture is extracted from Google's discovery document, independently of
+    // our request builder. A MIME string such as application/json is invalid here.
+    const jsonIndex = restDiscovery.mimeType.enumDescriptions.indexOf('JSON output format.');
+    expect(jsonIndex).toBeGreaterThanOrEqual(0);
+    expect(restDiscovery.mimeType.enum).toContain(mimeType);
+    expect(mimeType).toBe(restDiscovery.mimeType.enum[jsonIndex]);
   });
 
   it('keeps partial observations incomplete instead of requiring invented fields', async () => {

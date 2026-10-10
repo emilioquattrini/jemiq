@@ -51,7 +51,9 @@ Per un servizio operativo è raccomandata anche una chiave `GOOGLE_BOOKS_API_KEY
 
 Configurazione preparata il 10 ottobre 2026 sulla documentazione ufficiale e validata rispetto allo schema JSON Render. Avvio di produzione verificato localmente con `HOST=0.0.0.0`, porta assegnata e origine HTTPS: homepage e health check raggiungibili, origine corretta e codice valido ammessi, origine estranea respinta con 403, codice assente respinto con 401. Nessuna chiamata a Gemini o ai cataloghi durante questa prova.
 
-La creazione dell'account, l'inserimento delle credenziali e il primo deploy devono ancora essere completati nel pannello Render. La disponibilità e le prestazioni del servizio, il proxy effettivo e il riconoscimento su foto reali si verificano dopo questo passaggio.
+Il servizio è stato creato su Render e l'interfaccia è stata aperta sul telefono. La prima scansione ha restituito un rifiuto da Gemini; nel codice è stato corretto un valore non valido del formato di output REST. Per applicare la correzione, apri il servizio **jemiq → Deploys → Manual Deploy → Deploy latest commit**, attendi **Live**, ricarica Jemiq e premi **Riprova** sulla scansione conservata.
+
+La correzione deve ancora essere confermata con una scansione nel servizio aggiornato. Restano da verificare le prestazioni, il proxy effettivo e la qualità del riconoscimento su foto reali. I dettagli sono nel [protocollo di collaudo](VALIDATION.md).
 
 ## Documentazione Render
 
@@ -61,3 +63,4 @@ La creazione dell'account, l'inserimento delle credenziali e il primo deploy dev
 - [Variabili predefinite, incluso RENDER_EXTERNAL_URL](https://render.com/docs/environment-variables)
 - [Piano Free e limiti](https://render.com/docs/free)
 - [Versione Node](https://render.com/docs/node-version)
+- [Aggiornamento manuale del servizio](https://render.com/docs/deploys#manual-deploys)
