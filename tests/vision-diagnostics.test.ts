@@ -8,15 +8,15 @@ const image = {
 };
 
 describe('server-only Gemini diagnostics', () => {
-  it('recognizes an invalid-key reason without retaining provider prose or metadata', () => {
+  it('recognizes an invalid-key reason while redacting credentials and discarding account metadata', () => {
     const diagnostic = summarizeVisionRejection(400, { error: {
       status: 'INVALID_ARGUMENT', message: 'API key not valid. Please pass a valid API key. private-secret',
       details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'API_KEY_INVALID',
         metadata: { apiKey: 'private-secret', consumer: 'private-project' } }],
-    } });
+    } }, ['private-secret']);
     expect(diagnostic).toMatchObject({ httpStatus: 400, providerStatus: 'INVALID_ARGUMENT',
       reasons: ['API_KEY_INVALID'], categories: ['INVALID_API_KEY'] });
-    expect(JSON.stringify(diagnostic)).not.toMatch(/private-secret|private-project|Please pass|apiKey/);
+    expect(JSON.stringify(diagnostic)).not.toMatch(/private-secret|private-project|apiKey/);
   });
 
   it('records known rejected field names while excluding echoed image and prompt content', () => {
@@ -24,10 +24,10 @@ describe('server-only Gemini diagnostics', () => {
       status: 'INVALID_ARGUMENT',
       message: `Invalid JSON payload received. Unknown name "responseFormat" at 'generation_config': Cannot find field. Private prompt: confidential-book. Image: ${image.data}`,
       details: [{ reason: 'SENSITIVE_UNKNOWN_REASON' }],
-    } });
+    } }, ['confidential-book', image.data]);
     expect(diagnostic.categories).toEqual(['INVALID_JSON_PAYLOAD', 'UNKNOWN_FIELD']);
     expect(diagnostic.fields).toEqual(['responseFormat', 'generation_config']);
-    expect(JSON.stringify(diagnostic)).not.toMatch(/confidential-book|Private prompt|SENSITIVE_UNKNOWN_REASON|iVBOR/);
+    expect(JSON.stringify(diagnostic)).not.toMatch(/confidential-book|SENSITIVE_UNKNOWN_REASON|iVBOR/);
   });
 
   it('logs a rejection once while keeping upstream details out of the public error', async () => {
@@ -50,7 +50,21 @@ describe('server-only Gemini diagnostics', () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('private-data'.repeat(3000), { status: 400 }));
     const service = createVisionService({ apiKey: 'private-test-key', model: 'gemini-3.8-flash', fetchImpl, onDiagnostic });
     await expect(service.recognize(image, 'table')).rejects.toMatchObject({ code: 'VISION_REQUEST_REJECTED' });
-    expect(onDiagnostic).toHaveBeenCalledWith({ httpStatus: 400, reasons: [], categories: [], fields: [] });
+    expect(onDiagnostic).toHaveBeenCalledWith({ httpStatus: 400, reasons: [], categories: [], fields: [], messages: [] });
+  });
+
+  it('extracts nested field violations while redacting quoted values and long payload fragments', () => {
+    const diagnostic = summarizeVisionRejection(400, { error: {
+      status: 'INVALID_ARGUMENT', message: 'Request contains an invalid argument.',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations: [{
+        field: 'generation_config.response_format',
+        description: `Unknown name "responseFormat". Value: "private-title". Image: ${'A'.repeat(100)}. URL https://example.com/private-account`,
+      }] }],
+    } });
+    expect(diagnostic.fields).toEqual(expect.arrayContaining(['generation_config', 'response_format', 'responseFormat']));
+    expect(diagnostic.categories).toContain('UNKNOWN_FIELD');
+    expect(diagnostic.messages).toHaveLength(2);
+    expect(JSON.stringify(diagnostic)).not.toMatch(/private-title|private-account|A{32}/);
   });
 
   it('does not let a logging failure replace the actionable public error', async () => {

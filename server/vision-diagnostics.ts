@@ -1,10 +1,11 @@
-/** Server-only diagnostics. Never retain upstream prose, metadata, prompts, or credentials. */
+/** Server-only diagnostics. Full bodies and account metadata are discarded. */
 export interface VisionDiagnostic {
   httpStatus: number;
   providerStatus?: string;
   reasons: string[];
   categories: string[];
   fields: string[];
+  messages: string[];
 }
 
 const statuses = new Set(['INVALID_ARGUMENT', 'UNAUTHENTICATED', 'PERMISSION_DENIED',
@@ -30,18 +31,48 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown> : undefined;
 
-export function summarizeVisionRejection(httpStatus: number, body: unknown): VisionDiagnostic {
-  const diagnostic: VisionDiagnostic = { httpStatus, reasons: [], categories: [], fields: [] };
+function redactMessage(value: string, sensitiveValues: readonly string[]): string {
+  let result = value;
+  for (const sensitive of sensitiveValues) {
+    if (sensitive) result = result.split(sensitive).join('[REDACTED]');
+  }
+  return result
+    .replace(/https?:\/\/[^\s<>"']+/gi, '[URL]')
+    .replace(/[A-Za-z0-9_+/=-]{32,}/g, '[REDACTED]')
+    .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`/g, (quoted) => {
+      const inner = quoted.slice(1, -1);
+      return fields.has(inner) ? inner : '[REDACTED]';
+    })
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .slice(0, 600);
+}
+
+export function summarizeVisionRejection(httpStatus: number, body: unknown, sensitiveValues: readonly string[] = []): VisionDiagnostic {
+  const diagnostic: VisionDiagnostic = { httpStatus, reasons: [], categories: [], fields: [], messages: [] };
   const error = record(record(body)?.error);
   if (!error) return diagnostic;
   if (typeof error.status === 'string' && statuses.has(error.status)) diagnostic.providerStatus = error.status;
   const details = Array.isArray(error.details) ? error.details.slice(0, 20) : [];
+  const messages = typeof error.message === 'string' ? [error.message] : [];
+  const fieldPaths: string[] = [];
   for (const detail of details) {
-    const reason = record(detail)?.reason;
+    const item = record(detail);
+    const reason = item?.reason;
     if (typeof reason === 'string' && reasons.has(reason)) diagnostic.reasons.push(reason);
+    if (item?.['@type'] === 'type.googleapis.com/google.rpc.LocalizedMessage' && typeof item.message === 'string') messages.push(item.message);
+    for (const violation of Array.isArray(item?.fieldViolations) ? item.fieldViolations.slice(0, 12) : []) {
+      const entry = record(violation);
+      if (typeof entry?.field === 'string') fieldPaths.push(entry.field);
+      if (typeof entry?.description === 'string') messages.push(entry.description);
+    }
+    for (const violation of Array.isArray(item?.violations) ? item.violations.slice(0, 12) : []) {
+      const description = record(violation)?.description;
+      if (typeof description === 'string') messages.push(description);
+    }
   }
-  // Match only known categories and field names. No upstream string passes through to logs.
-  const message = typeof error.message === 'string' ? error.message.slice(0, 12_000) : '';
+  // Status, reasons and field names remain allowlisted; only short redacted error
+  // messages are retained. The caller supplies the actual key, image and prompt.
+  const message = [...messages, ...fieldPaths].join(' ').slice(0, 12_000);
   const categories: Array<[string, RegExp]> = [
     ['INVALID_JSON_PAYLOAD', /invalid json payload/i],
     ['UNKNOWN_FIELD', /unknown name|cannot find field|unrecognized (?:field|parameter)/i],
@@ -58,5 +89,6 @@ export function summarizeVisionRejection(httpStatus: number, body: unknown): Vis
   }
   diagnostic.reasons = [...new Set(diagnostic.reasons)];
   diagnostic.fields = [...new Set(diagnostic.fields)].slice(0, 24);
+  diagnostic.messages = [...new Set(messages)].slice(0, 4).map((value) => redactMessage(value, sensitiveValues));
   return diagnostic;
 }

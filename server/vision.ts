@@ -305,7 +305,7 @@ export function createVisionService(options: VisionOptions) {
                 rejection = await readBoundedJson(response,
                   AbortSignal.any([controller.signal, AbortSignal.timeout(1500)]), 16 * 1024);
               } catch { /* Preserve the HTTP error even when its diagnostic body is unusable. */ }
-              try { options.onDiagnostic(summarizeVisionRejection(response.status, rejection)); }
+              try { options.onDiagnostic(summarizeVisionRejection(response.status, rejection, [apiKey, image.data, SYSTEM_PROMPT])); }
               catch { /* Logging must not alter the request result. */ }
             } else {
               void response.body?.cancel().catch(() => undefined);
