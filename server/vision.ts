@@ -271,9 +271,12 @@ export function createVisionService(options: VisionOptions) {
           // still lists it for older models. Omit it and use the single default result.
           // https://ai.google.dev/gemini-api/docs/generate-content/latest-model
           maxOutputTokens: 16_384,
-          // REST TextResponseFormat requires an enum, unlike inlineData's MIME string.
-          // https://ai.google.dev/api/generate-content#TextResponseFormat
-          responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: responseSchema } },
+          // Use the field pair serialized by the official JS SDK. The newer
+          // responseFormat envelope was rejected by the deployed endpoint despite
+          // matching its discovery schema. Keep the same strict JSON Schema.
+          // https://googleapis.github.io/js-genai/release_docs/interfaces/types.GenerateContentConfig.html
+          responseMimeType: 'application/json',
+          responseJsonSchema: responseSchema,
         },
       });
 

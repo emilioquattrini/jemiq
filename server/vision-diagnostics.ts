@@ -26,6 +26,8 @@ const fields = new Set(['generationConfig', 'generation_config', 'responseFormat
   'minItems', 'min_items', 'maxItems', 'max_items', 'required', 'properties', 'items',
   'observations', 'warnings', 'title', 'authors', 'visibleIsbn', 'publisher', 'language',
   'evidence', 'position', 'confidence', 'boundingBox']);
+const publicValues = new Set(['APPLICATION_JSON', 'TEXT_PLAIN', 'application/json', 'text/plain',
+  'string', 'number', 'integer', 'boolean', 'array', 'object', 'null']);
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -38,10 +40,11 @@ function redactMessage(value: string, sensitiveValues: readonly string[]): strin
   }
   return result
     .replace(/https?:\/\/[^\s<>"']+/gi, '[URL]')
+    .replace(/\b(?:projects|consumers)\/[^\s<>"'`,;()\[\]{}]+/gi, '[REDACTED]')
     .replace(/[A-Za-z0-9_+/=-]{32,}/g, '[REDACTED]')
     .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`/g, (quoted) => {
       const inner = quoted.slice(1, -1);
-      return fields.has(inner) ? inner : '[REDACTED]';
+      return fields.has(inner) || publicValues.has(inner) ? inner : '[REDACTED]';
     })
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .slice(0, 600);

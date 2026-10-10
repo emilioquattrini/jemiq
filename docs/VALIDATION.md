@@ -2,7 +2,7 @@
 
 ## Esito software e limite attuale
 
-La suite automatica verifica il comportamento del catalogo e di [Jemiq Studio](STUDIO.md) con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI né la qualità fotografica degli sfondi. Le scansioni precedenti sul servizio Render hanno mostrato una richiesta Gemini rifiutata. Dopo la correzione del formato JSON è stato individuato un secondo parametro incompatibile con il modello, `candidateCount`, ora rimosso. Il commit `64f90a1` è stato distribuito con successo su Render, ma una scansione effettiva nell’app con una copertina sintetica di prova ha restituito ancora il rifiuto. È stata quindi aggiunta una diagnostica limitata a codici e campi ammessi per individuare la causa upstream senza registrare dati riservati. Le nuove generazioni Studio con credenziali reali non sono ancora collaudate.
+La suite automatica verifica il comportamento del catalogo e di [Jemiq Studio](STUDIO.md) con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI né la qualità fotografica degli sfondi. Le scansioni operative fino al commit `77f1d55`, distribuito e verificato su Render, hanno restituito `400 / INVALID_ARGUMENT` con il solo messaggio `Request contains an invalid argument.`. Il riconoscimento usa ora la coppia `responseMimeType` e `responseJsonSchema` documentata e serializzata dall’SDK ufficiale Google: il collaudo operativo di questa sostituzione deve ancora confermare se risolve il blocco. Lo schema bibliografico e la validazione dei risultati sono invariati. Le generazioni Studio con credenziali reali non sono ancora collaudate.
 
 Una richiesta bibliografica reale con ISBN `9780156453806` ha restituito il volume corretto tramite Open Library mentre Google Books rispondeva HTTP 429. Questo prova il fallback per quella richiesta, non la copertura dell’intero catalogo italiano.
 
@@ -12,7 +12,7 @@ La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controlla
 
 | Verifica | Esito |
 | --- | --- |
-| Suite automatica estesa | 344 test superati in 13 file, inclusi catalogo, Studio e regressioni sui contratti REST e sui parametri dei modelli |
+| Suite automatica estesa | 346 test superati in 13 file, inclusi catalogo, Studio e regressioni sui contratti REST e sui parametri dei modelli |
 | TypeScript e build di produzione | Superati su Node 24 |
 | Audit delle dipendenze di produzione | Nessuna vulnerabilità nota segnalata da `npm audit --omit=dev --audit-level=high` |
 | Catalogo, browser desktop | Chromium 153, viewport 1440 px; avvio del bundle di produzione con CSP attiva |
@@ -43,7 +43,7 @@ Il collaudo UI Studio ha completato sette gruppi di prove, senza chiamate reali 
 6. Ricarica durante un job in esecuzione, recupero soltanto con GET e cancellazione.
 7. Flusso mobile, dimensioni dei controlli, assenza di overflow e download nei due formati.
 
-Restano da verificare nell’ambiente operativo: riconoscimento e generazione Gemini con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali, build Docker e comportamento del proxy di hosting. Il deploy della nuova versione Studio non è parte delle prove locali riportate qui.
+Restano da verificare nell’ambiente operativo: il successo del riconoscimento con la nuova rappresentazione JSON, la generazione Studio con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali e build Docker. La versione comprensiva di Studio è stata distribuita su Render; questo non certifica il successo delle sue generazioni.
 
 ## Correzione del contratto REST Gemini
 
@@ -61,7 +61,7 @@ La richiesta conteneva ancora `generationConfig.candidateCount: 1`. La guida spe
 
 Rimosso `candidateCount`, mantenendo il modello `gemini-3.8-flash`, l'enum REST `APPLICATION_JSON` e lo schema bibliografico. Non sono stati aggiunti tentativi automatici o chiamate a modelli alternativi.
 
-La nuova regressione usa una fixture ricavata dalle restrizioni documentate del modello e un trasporto simulato che rifiuta i campi non supportati con HTTP 400. Eseguita prima della correzione, fallisce con lo stesso messaggio generico mostrato dall’app; dopo la rimozione del parametro passa. La regressione è mantenuta nella suite estesa di 344 test, con TypeScript e build superati. Anche le richieste Studio omettono `candidateCount`: il servizio testuale usa l’enum `APPLICATION_JSON`, il generatore immagini gli enum del proprio formato REST.
+La nuova regressione usa una fixture ricavata dalle restrizioni documentate del modello e un trasporto simulato che rifiuta i campi non supportati con HTTP 400. Eseguita prima della correzione, fallisce con lo stesso messaggio generico mostrato dall’app; dopo la rimozione del parametro passa. La regressione è mantenuta nella suite estesa di 346 test, con TypeScript e build superati. Anche le richieste Studio omettono `candidateCount`: il servizio testuale usa l’enum `APPLICATION_JSON`, il generatore immagini gli enum del proprio formato REST.
 
 Questa verifica dimostra la rimozione di un difetto documentato del payload, non il successo di una scansione Gemini reale. Non sono state utilizzate credenziali operative durante la correzione. Il corpo dell'errore di produzione non è disponibile, quindi eventuali problemi di chiave, quota o account restano da verificare soltanto se il rifiuto persiste dopo il deploy aggiornato.
 
@@ -72,6 +72,16 @@ Fonti: [Gemini 3.8 — Migration checklist](https://ai.google.dev/gemini-api/doc
 Il server registra `Jemiq Gemini rejection:` seguito da HTTP status, status RPC, motivi noti, categorie fisse, nomi di campi ammessi e brevi messaggi diagnostici ripuliti. I messaggi sono limitati a quattro estratti di 600 caratteri: chiave configurata, immagine, prompt, valori tra virgolette, URL e lunghe sequenze codificate vengono rimossi. Il corpo originale e gli oggetti con metadati dell’account vengono scartati. Anche i dettagli `BadRequest.fieldViolations` vengono esaminati per individuare il parametro rifiutato. Il corpo di errore viene letto entro 16 KiB e 1,5 secondi; una diagnostica non disponibile o un errore del logger non sostituiscono la classificazione HTTP originale.
 
 Google documenta anche `400 / INVALID_ARGUMENT / API_KEY_INVALID`, quindi il solo HTTP 400 non dimostra un difetto del payload. Fonte: [GenerateContent API errors](https://ai.google.dev/gemini-api/docs/generate-content/api-errors).
+
+## Compatibilità del formato JSON con il servizio operativo
+
+Le scansioni reali sui commit `64f90a1`, `f8b93c1` e `77f1d55` hanno riprodotto il rifiuto anche dopo la rimozione di `candidateCount`. Il log completo ripulito del 10 ottobre non contiene dettagli di campo, quote o credenziali: soltanto `400 / INVALID_ARGUMENT` e `Request contains an invalid argument.`. In Render non è definito un override `GEMINI_MODEL`, quindi il server usa il valore predefinito `gemini-3.8-flash`. Nessuna credenziale è stata letta o modificata.
+
+Per isolare la rappresentazione della richiesta, il riconoscimento sostituisce `responseFormat.text` con `responseMimeType: application/json` e `responseJsonSchema`. Questi sono i nomi emessi dal convertitore `generateContentConfigToMldev` dell’SDK ufficiale JS; `tJsonSchema` lascia lo schema invariato. Foto, modello, prompt, limite di token, schema e validazione Zod restano gli stessi. Si esegue sempre una sola richiesta, senza tentativi automatici.
+
+La regressione simula il rifiuto della vecchia rappresentazione e controlla la coppia documentata, inclusi i tipi nullable. Fallisce prima della sostituzione e passa dopo. Come gli altri test con provider simulato, non dimostra da sola che Gemini accetti la richiesta operativa.
+
+Fonti: [GenerateContentConfig SDK](https://googleapis.github.io/js-genai/release_docs/interfaces/types.GenerateContentConfig.html), [convertitore ufficiale](https://github.com/googleapis/js-genai/blob/main/src/converters/_models_converters.ts), [trasformazioni dello schema](https://github.com/googleapis/js-genai/blob/main/src/_transformers.ts).
 
 ## Studio: evidenze e confini delle prove
 

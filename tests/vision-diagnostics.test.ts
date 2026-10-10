@@ -67,6 +67,27 @@ describe('server-only Gemini diagnostics', () => {
     expect(JSON.stringify(diagnostic)).not.toMatch(/private-title|private-account|A{32}/);
   });
 
+  it('preserves public output-format constants and JSON types in rejection messages', () => {
+    const diagnostic = summarizeVisionRejection(400, { error: {
+      status: 'INVALID_ARGUMENT',
+      message: 'Invalid value at "mimeType": "APPLICATION_JSON". Expected "application/json"; "TEXT_PLAIN" maps to "text/plain". Types: "string", "number", "integer", "boolean", "array", "object", "null". Value: "private-title".',
+    } });
+    expect(diagnostic.messages).toEqual([
+      'Invalid value at mimeType: APPLICATION_JSON. Expected application/json; TEXT_PLAIN maps to text/plain. Types: string, number, integer, boolean, array, object, null. Value: [REDACTED].',
+    ]);
+  });
+
+  it('redacts project and consumer resource paths even when they are not quoted', () => {
+    const diagnostic = summarizeVisionRejection(400, { error: {
+      status: 'INVALID_ARGUMENT',
+      message: 'Consumer: projects/demo-project-123; project: projects/123456789012; resource: consumers/private-consumer/services/generative-language; field: "mimeType".',
+    } });
+    expect(diagnostic.messages).toEqual([
+      'Consumer: [REDACTED]; project: [REDACTED]; resource: [REDACTED]; field: mimeType.',
+    ]);
+    expect(JSON.stringify(diagnostic)).not.toMatch(/demo-project-123|123456789012|private-consumer|generative-language/);
+  });
+
   it('does not let a logging failure replace the actionable public error', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: { status: 'PERMISSION_DENIED' } }, { status: 403 }));
     const service = createVisionService({ apiKey: 'private-test-key', model: 'gemini-3.8-flash', fetchImpl,
