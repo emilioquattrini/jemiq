@@ -2,7 +2,7 @@
 
 ## Esito software e limite attuale
 
-La suite automatica verifica il comportamento del codice con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI. Le scansioni sul servizio Render hanno mostrato una richiesta Gemini rifiutata. Dopo la correzione del formato JSON è stato individuato un secondo parametro incompatibile con il modello, `candidateCount`, ora rimosso. Questa seconda correzione deve ancora essere verificata con una nuova scansione nell’ambiente operativo.
+La suite automatica verifica il comportamento del catalogo e di [Jemiq Studio](STUDIO.md) con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI né la qualità fotografica degli sfondi. Le scansioni precedenti sul servizio Render hanno mostrato una richiesta Gemini rifiutata. Dopo la correzione del formato JSON è stato individuato un secondo parametro incompatibile con il modello, `candidateCount`, ora rimosso. Questa seconda correzione deve ancora essere verificata con una nuova scansione nell’ambiente operativo. Le nuove generazioni Studio con credenziali reali non sono ancora collaudate.
 
 Una richiesta bibliografica reale con ISBN `9780156453806` ha restituito il volume corretto tramite Open Library mentre Google Books rispondeva HTTP 429. Questo prova il fallback per quella richiesta, non la copertura dell’intero catalogo italiano.
 
@@ -12,11 +12,11 @@ La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controlla
 
 | Verifica | Esito |
 | --- | --- |
-| Suite automatica | 152 test superati in 6 file, incluse le regressioni sul formato REST e sui parametri ammessi da Gemini 3.8 |
+| Suite automatica estesa | 338 test superati in 12 file, inclusi catalogo, Studio e regressioni sui contratti REST e sui parametri dei modelli |
 | TypeScript e build di produzione | Superati su Node 24 |
-| Audit dipendenze di produzione | Nessuna vulnerabilità nota segnalata da `npm audit --omit=dev` |
-| Browser desktop | Chromium 153, viewport 1440 px; avvio del bundle di produzione con CSP attiva |
-| Browser mobile emulato | Viewport 390 e 320 px; tabella, editor e conferma senza overflow orizzontale |
+| Audit delle dipendenze di produzione | Nessuna vulnerabilità nota segnalata da `npm audit --omit=dev --audit-level=high` |
+| Catalogo, browser desktop | Chromium 153, viewport 1440 px; avvio del bundle di produzione con CSP attiva |
+| Catalogo, browser mobile emulato | Viewport 390 e 320 px; tabella, editor e conferma senza overflow orizzontale |
 | Conferma edizione | Un candidato della demo diventa confermato solo dopo la scelta esplicita |
 | Download | XLSX e CSV scaricati dal browser; XLSX riaperto e ISBN verificato come testo |
 | Cronologia | Nome, quantità ed edizione confermata ritrovati dopo la ricarica |
@@ -24,10 +24,26 @@ La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controlla
 | Immagine di collaudo | PNG caricato, convertito in JPEG e ruotato di 90 gradi |
 | Rete assente nella ricerca | Errore in italiano e catalogo conservato |
 | Stream interrotto simulato | Riga ricevuta e avviso di interruzione conservati anche dopo la ricarica |
+| Studio, HTTP e job | Sessione firmata, accesso/origine, isolamento browser, idempotenza, conflitto 409, polling, cancellazione e limiti verificati con provider simulato |
+| Studio, proposta testuale | Scheda scelta riletta dal server, identità e riscontri delle fonti controllati, fallback esplicito e nessun retry automatico |
+| Studio, grafica in Chromium | Conservazione di pixel e alpha nel percorso PNG su fixture, ritaglio prospettico ed export JPEG 1080 × 1350 / 1080 × 1920 verificati |
+| Studio, persistenza | Progetti salvati in IndexedDB; bozze con testo temporaneamente vuoto conservate, generazione bloccata finché la proposta non è valida |
+| Studio, UI desktop | Chromium 153.0.8010.0, 1440 × 1050; flusso completo con provider simulato, CSP attiva, font locali e nessun errore JavaScript |
+| Studio, UI mobile emulata | 390 × 844 e 320 × 740, senza overflow nei tre passaggi; controlli touch di almeno 48 px e download JPEG Post/Storia verificati |
 
-Le schermate in [screenshots](screenshots/) provengono dall’app in esecuzione, con dati della demo esplicitamente indicati. Non sono risultati di riconoscimento su fotografie reali. I test browser non hanno rilevato errori JavaScript nell’app.
+Le [schermate Studio](screenshots/jemiq-studio-start-desktop.png) mostrano l’app in esecuzione con copertina sintetica e ambientazione di collaudo, contrassegnate come tali: [ritaglio](screenshots/jemiq-studio-crop-desktop.png), [proposta](screenshots/jemiq-studio-brief-desktop.png), [risultato desktop](screenshots/jemiq-studio-result-desktop.png) e [mobile](screenshots/jemiq-studio-result-mobile.png). Non sono generazioni Gemini reali. Anche le schermate iniziali e della demo del catalogo, nella stessa cartella, sono state rigenerate con il nuovo marchio durante questo collaudo; i dati dimostrativi non provano il riconoscimento su fotografie reali.
 
-Restano da verificare nell’ambiente operativo: riconoscimento Gemini con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali, build Docker e comportamento del proxy di hosting.
+Il collaudo UI Studio ha completato sette gruppi di prove, senza chiamate reali ai provider:
+
+1. Bundle di produzione, CSP, font locali, accesso e passaggio Catalogo → Studio.
+2. Ritaglio con controlli da tastiera e preparazione della proposta.
+3. Bozza con campo vuoto conservata dopo ricarica, doppio clic con un solo POST, nessuna immagine nel POST di generazione e download JPEG nelle due dimensioni previste.
+4. Modifica di un progetto completato con nuova bozza e originale conservato; gestione della ricerca lenta.
+5. Risposta al POST persa e recupero soltanto con GET.
+6. Ricarica durante un job in esecuzione, recupero soltanto con GET e cancellazione.
+7. Flusso mobile, dimensioni dei controlli, assenza di overflow e download nei due formati.
+
+Restano da verificare nell’ambiente operativo: riconoscimento e generazione Gemini con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali, build Docker e comportamento del proxy di hosting. Il deploy della nuova versione Studio non è parte delle prove locali riportate qui.
 
 ## Correzione del contratto REST Gemini
 
@@ -45,11 +61,40 @@ La richiesta conteneva ancora `generationConfig.candidateCount: 1`. La guida spe
 
 Rimosso `candidateCount`, mantenendo il modello `gemini-3.8-flash`, l'enum REST `APPLICATION_JSON` e lo schema bibliografico. Non sono stati aggiunti tentativi automatici o chiamate a modelli alternativi.
 
-La nuova regressione usa una fixture ricavata dalle restrizioni documentate del modello e un trasporto simulato che rifiuta i campi non supportati con HTTP 400. Eseguita prima della correzione, fallisce con lo stesso messaggio generico mostrato dall'app; dopo la rimozione del parametro passa. `npm run check` supera 152 test, TypeScript e build.
+La nuova regressione usa una fixture ricavata dalle restrizioni documentate del modello e un trasporto simulato che rifiuta i campi non supportati con HTTP 400. Eseguita prima della correzione, fallisce con lo stesso messaggio generico mostrato dall’app; dopo la rimozione del parametro passa. La regressione è mantenuta nella suite estesa di 338 test, con TypeScript e build superati. Anche le richieste Studio omettono `candidateCount`: il servizio testuale usa l’enum `APPLICATION_JSON`, il generatore immagini gli enum del proprio formato REST.
 
 Questa verifica dimostra la rimozione di un difetto documentato del payload, non il successo di una scansione Gemini reale. Non sono state utilizzate credenziali operative durante la correzione. Il corpo dell'errore di produzione non è disponibile, quindi eventuali problemi di chiave, quota o account restano da verificare soltanto se il rifiuto persiste dopo il deploy aggiornato.
 
 Fonti: [Gemini 3.8 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/latest-model), [Gemini 3.6 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.6).
+
+## Studio: evidenze e confini delle prove
+
+I test dei servizi Studio usano risposte simulate. Verificano che una stessa richiesta non avvii una seconda generazione, che un brief differente con la stessa UUID venga rifiutato, che altri browser non possano leggere o annullare il job e che perdita di connessione, timeout, quota e risposta malformata non producano un’immagine di successo fittizia. Il recupero utilizza GET; la scelta di generare una nuova immagine resta esplicita.
+
+Il contesto bibliografico viene recuperato con endpoint fissi, controllando la scheda e l’identità del libro. Sinossi e categorie inviate dal client non sono accettate come fonti. I dati Open Library provengono dalla singola edizione. La proposta distingue origine `catalog`, `reader` e `style`; i riscontri testuali riducono le attribuzioni arbitrarie, ma non provano automaticamente l’assenza di spoiler o la pertinenza di ogni oggetto.
+
+Le prove grafiche in Chromium usano immagini di collaudo, senza chiamare il generatore. Coprono il ritaglio a quattro punti, la trasformazione prospettica e il percorso PNG che mantiene la grafica della copertina e la trasparenza. La composizione finale è deterministica nel browser. I JPEG scaricabili hanno dimensioni 1080 × 1350 e 1080 × 1920; il ricampionamento e la compressione JPEG non conservano l’identità binaria dei pixel originali. Il modello genera soltanto l’ambientazione e non riceve la foto da sovrapporre.
+
+La nuova identità visiva usa i [token del brand](brand/design-tokens.json), le [variabili CSS](../src/design-tokens.css), il logo originale e Noto Sans distribuito localmente con [licenza OFL](../public/fonts/OFL.txt). Il caricamento dei font locali e il layout desktop/mobile sono verificati in Chromium. La verifica del browser non sostituisce un controllo di accessibilità con tecnologie assistive e dispositivi reali.
+
+### Protocollo UI Studio
+
+1. Aprire Studio direttamente e dalla scheda di un libro. Caricare una foto, allineare gli angoli, controllare il ritaglio e verificare titolo/autore.
+2. Preparare una proposta con una scheda disponibile e una senza metadati: nel secondo caso non devono comparire dettagli di trama attribuiti al catalogo. Modificare mood, elementi e palette.
+3. Svuotare temporaneamente un campo del brief, cambiare progetto e riaprirlo: la bozza deve sopravvivere; l’invio al generatore deve restare bloccato finché i campi necessari non sono completati.
+4. Verificare che l’identificativo sia salvato prima del POST. Simulare la perdita dell’acknowledgement, ricaricare e riaprire il progetto: soltanto GET di recupero, senza un secondo POST di generazione.
+5. Simulare errore o cancellazione: nessuno sfondo fittizio, foto e bozza conservate. Una risposta tardiva di un altro progetto non deve essere applicata al libro corrente.
+6. Su un progetto completato modificare libro, ISBN, stile o proposta: creare una nuova bozza, mantenendo coerenti immagine e dati dell’originale in cronologia. Una correzione dell’ISBN deve invalidare la vecchia provenienza.
+7. Alternare Post e Storia e regolare scala/rotazione: controllo visivo di copertina, ombre e margini; nessuna chiamata aggiuntiva al generatore. Scaricare entrambi i JPEG e verificarne dimensioni e leggibilità.
+8. Aprire due sessioni browser con lo stesso codice di accesso: un job deve essere recuperabile soltanto dalla sessione proprietaria. Verificare il messaggio di sessione scaduta dopo un riavvio.
+9. Controllare che una ricerca lenta non permetta operazioni incompatibili e che annullamento o cambio progetto liberino i controlli. Verificare che salvataggio fallito prima dell’invio non avvii una generazione.
+10. Impostare `STUDIO_ENABLED=false`, riavviare e verificare `studioReady: false` e blocco delle nuove generazioni. La configurazione non deve cancellare i progetti nel browser.
+
+### Campione reale per Studio
+
+Usare pochi libri di generi diversi, con copertine chiare/scure, titoli piccoli e fotografie inclinate. Per ogni generazione registrare modello, durata, errore eventuale e costo effettivo nel progetto Google. Controllare che scena e oggetti rispecchino la proposta, che non anticipino rivelazioni indesiderate e che titolo e grafica della copertina restino quelli fotografati. Valutare separatamente resa della fotografia, pertinenza della proposta e qualità dello sfondo.
+
+Le prove di 429, scadenza e duplicazione vanno eseguite con i provider simulati della suite; non occorre consumare generazioni reali per raggiungere i limiti. Una verifica `/api/health` positiva indica configurazione presente, non credenziali verificate o costo nullo.
 
 ## Verifica funzionale
 
@@ -85,6 +130,10 @@ Provare fotocamera e caricamento su Safari iPhone, Chrome Android, Safari macOS 
 
 ## Hosting
 
-Controllare HTTPS, `APP_ORIGIN`, proxy fidati, codice di accesso di almeno 16 caratteri, chiavi solo sul server e quote dei provider. Usare una singola istanza finché i limiti non sono condivisi. Verificare che il proxy non bufferizzi `application/x-ndjson` e consenta richieste di tre minuti.
+Controllare HTTPS, `APP_ORIGIN`, proxy fidati, codice di accesso di almeno 16 caratteri, chiavi solo sul server e quote dei provider. Usare una singola istanza finché i limiti, le sessioni e i job non sono condivisi. Verificare che il proxy non bufferizzi `application/x-ndjson` e consenta richieste di tre minuti.
+
+Per Studio provare polling, scadenza dei risultati e riavvio con un job simulato in corso. In produzione il processo conserva al massimo 4 sfondi e circa 32 MiB di stringhe, per non più di 30 minuti; le registrazioni leggere delle richieste durano fino a 24 ore. Il riavvio perde memoria e firma dei cookie. Il progetto locale sopravvive, ma un risultato non ancora ricevuto può andare perso. I limiti in memoria non costituiscono un tetto di spesa persistente.
+
+Il modello immagini predefinito è `gemini-nano-banana-2.1`: usa `GEMINI_IMAGE_API_KEY` se presente, altrimenti `GEMINI_API_KEY`. Proposta testuale e riconoscimento usano la chiave e il modello già configurati. Verificare separatamente i permessi dei due modelli. Per applicare il codice usare **Manual Deploy → Deploy latest commit** come descritto in [Render](RENDER.md); un commit su GitHub non aggiorna il servizio quando l’auto-deploy è disabilitato.
 
 Pubblicazione e collegamento delle credenziali reali sono passaggi distinti dalla consegna del codice in GitHub.

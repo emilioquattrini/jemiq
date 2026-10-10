@@ -12,6 +12,7 @@ export const candidateSchema = z.object({
   id: text, title: text, authors: z.array(text).max(30), isbn13: nullableText,
   publisher: nullableText, publishedDate: nullableText, language: nullableText,
   pageCount: z.number().finite().int().nonnegative().nullable(), thumbnail: nullableText,
+  description: z.string().max(4000).nullable().optional(), categories: z.array(z.string().max(100)).max(8).optional(),
   source: z.enum(['Google Books', 'Open Library']), sourceUrl: text,
   score: z.number().finite(), matchReason: text,
 });
@@ -19,6 +20,7 @@ export const bookSchema = z.object({
   id: text, observation: observationSchema, title: text, authors: z.array(text).max(30),
   isbn13: nullableText, publisher: nullableText, publishedDate: nullableText,
   language: nullableText, pageCount: z.number().finite().int().nonnegative().nullable(),
+  description: z.string().max(4000).nullable().optional(), categories: z.array(z.string().max(100)).max(8).optional(),
   thumbnail: nullableText, source: z.enum(['Google Books', 'Open Library']).nullable(), sourceUrl: nullableText,
   status: z.enum(['verified', 'confirmed', 'review', 'unresolved']),
   candidates: z.array(candidateSchema).max(30), notes: text,

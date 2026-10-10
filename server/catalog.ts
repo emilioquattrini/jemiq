@@ -10,6 +10,13 @@ export interface CatalogServiceOptions {
   openLibraryIntervalMs?: number;
 }
 
+/** A selected catalogue reference, resolved into a fixed provider endpoint on the server. */
+export interface CatalogReference {
+  source: CatalogSource;
+  sourceUrl: string;
+  isbn13?: string | null;
+}
+
 export class CatalogError extends Error {
   readonly status = 503;
   readonly code = 'CATALOG_UNAVAILABLE';
@@ -50,6 +57,33 @@ function string(value: unknown, limit = 500): string | null {
 
 function strings(value: unknown): string[] {
   return [...new Set(array(value).map((item) => string(item, 200)).filter((item): item is string => !!item))].slice(0, 20);
+}
+
+/** Catalogue descriptions may contain HTML. Keep bounded plain text, never executable markup. */
+function catalogueText(value: unknown, limit = 4_000): string | null {
+  if (typeof value !== 'string') return null;
+  const entities: Record<string, string> = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+    ndash: '–', mdash: '—', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', hellip: '…',
+  };
+  return value.slice(0, 30_000)
+    .replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
+      if (entity[0] !== '#') return entities[entity.toLowerCase()] ?? match;
+      const code = entity[1]?.toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+      return Number.isSafeInteger(code) && code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+        ? String.fromCodePoint(code) : ' ';
+    })
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, limit) || null;
+}
+
+function catalogueCategories(value: unknown): string[] {
+  return [...new Set(array(value).slice(0, 30).map((item) =>
+    catalogueText(typeof item === 'string' ? item : object(item).name, 100),
+  ).filter((item): item is string => !!item))].slice(0, 8);
 }
 
 function positiveInteger(value: unknown): number | null {
@@ -167,7 +201,7 @@ function mismatch(observation: Observation, candidate: InternalCandidate): strin
 
 function cloneCandidates(candidates: InternalCandidate[]): CatalogCandidate[] {
   return candidates.map(({ ebookConflict: _ebookConflict, ...candidate }) => ({
-    ...candidate, authors: [...candidate.authors],
+    ...candidate, authors: [...candidate.authors], categories: [...(candidate.categories ?? [])],
   }));
 }
 
@@ -262,6 +296,8 @@ function googleCandidate(value: unknown, exactIsbn?: string): InternalCandidate 
     publishedDate: string(info.publishedDate, 80),
     language: string(info.language, 30),
     pageCount: positiveInteger(info.pageCount),
+    description: catalogueText(info.description),
+    categories: catalogueCategories(info.categories),
     thumbnail: imageUrl(object(info.imageLinks).thumbnail ?? object(info.imageLinks).smallThumbnail),
     source: 'Google Books',
     sourceUrl: 'https://books.google.com/books?id=' + encodeURIComponent(id),
@@ -297,6 +333,9 @@ function openLibraryCandidate(value: unknown, key: string, exactIsbn?: string): 
     publishedDate: string(data.publish_date, 80),
     language,
     pageCount: positiveInteger(data.number_of_pages),
+    // Only fields returned with this edition; never fill from a work/search aggregate.
+    description: catalogueText(typeof data.description === 'string' ? data.description : object(data.description).value),
+    categories: catalogueCategories(data.subjects),
     thumbnail: imageUrl(object(data.cover).medium ?? object(data.cover).small),
     source: 'Open Library',
     sourceUrl: editionId ? 'https://openlibrary.org/books/' + editionId : 'https://openlibrary.org/isbn/' + exactIsbn,
@@ -411,7 +450,7 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
           throw new Error(source + ': risposta del catalogo non valida.');
         }
         const data = object(value);
-        if (source === 'Google Books' && (
+        if (source === 'Google Books' && url.pathname === '/books/v1/volumes' && (
           (data.items !== undefined && !Array.isArray(data.items))
           || (data.items === undefined && typeof data.totalItems !== 'number')
         )) {
@@ -533,6 +572,48 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
     return cloneCandidates(result.candidates);
   }
 
+  async function getCandidate(reference: CatalogReference, signal?: AbortSignal): Promise<CatalogCandidate | null> {
+    throwIfAborted(signal);
+    // Never fetch the supplied URL itself. Recognize only the links emitted by this
+    // catalogue and construct an API URL from a validated provider identifier.
+    if (typeof reference?.sourceUrl !== 'string' || reference.sourceUrl.length > 2_000) return null;
+    let sourceUrl: URL;
+    try { sourceUrl = new URL(reference.sourceUrl); } catch { return null; }
+    if (sourceUrl.protocol !== 'https:' || sourceUrl.username || sourceUrl.password || sourceUrl.port || sourceUrl.hash) return null;
+    const isbn = reference.isbn13 ? toIsbn13(reference.isbn13) : null;
+    if (reference.isbn13 && !isbn) return null;
+    const issues: string[] = [];
+    let candidates: InternalCandidate[];
+    if (reference.source === 'Google Books') {
+      const id = sourceUrl.searchParams.get('id');
+      if (sourceUrl.hostname !== 'books.google.com' || sourceUrl.pathname !== '/books'
+        || sourceUrl.searchParams.getAll('id').length !== 1 || [...sourceUrl.searchParams.keys()].some((key) => key !== 'id')
+        || !id || !/^[A-Za-z0-9_-]{1,150}$/.test(id)) return null;
+      candidates = await tryProvider('Google Books', async () => {
+        const url = new URL('https://www.googleapis.com/books/v1/volumes/' + encodeURIComponent(id));
+        if (options.googleBooksApiKey) url.searchParams.set('key', options.googleBooksApiKey);
+        const value = await requestJson(url, 'Google Books', signal);
+        const candidate = googleCandidate(value, isbn ?? undefined);
+        return candidate?.id === 'google:' + id ? [candidate] : [];
+      }, issues, signal);
+    } else if (reference.source === 'Open Library') {
+      if (sourceUrl.hostname !== 'openlibrary.org' || sourceUrl.search) return null;
+      const editionId = /^\/books\/(OL\d{1,12}M)$/.exec(sourceUrl.pathname)?.[1];
+      const urlIsbn = /^\/isbn\/([\dXx-]{10,20})$/.exec(sourceUrl.pathname)?.[1];
+      const requestedIsbn = urlIsbn ? toIsbn13(urlIsbn) : null;
+      if (!editionId && !requestedIsbn) return null;
+      if (isbn && requestedIsbn && isbn !== requestedIsbn) return null;
+      candidates = await tryProvider('Open Library', async () => {
+        const result = await openLibraryEditions(
+          [editionId ? 'OLID:' + editionId : 'ISBN:' + requestedIsbn], signal, isbn ?? requestedIsbn ?? undefined,
+        );
+        return result.filter((candidate) => !editionId || candidate.id === 'openlibrary:' + editionId);
+      }, issues, signal);
+    } else return null;
+    if (issues.length) throw new CatalogError();
+    return cloneCandidates(candidates)[0] ?? null;
+  }
+
   async function enrich(observation: Observation, signal?: AbortSignal): Promise<BookRecord> {
     throwIfAborted(signal);
     const record: BookRecord = {
@@ -573,6 +654,8 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
           publishedDate: candidate.publishedDate,
           language: candidate.language,
           pageCount: candidate.pageCount,
+          description: candidate.description ?? null,
+          categories: [...(candidate.categories ?? [])],
           thumbnail: candidate.thumbnail,
           source: candidate.source,
           sourceUrl: candidate.sourceUrl,
@@ -608,5 +691,5 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
     return record;
   }
 
-  return { enrich, search };
+  return { enrich, search, getCandidate };
 }

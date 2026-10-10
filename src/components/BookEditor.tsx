@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { AlertCircle, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, LoaderCircle, Search, X } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, ImagePlus, LoaderCircle, Search, X } from 'lucide-react';
 import type { BookRecord, CatalogCandidate } from '../../shared/types';
 import { isValidIsbn, toIsbn13 } from '../../shared/isbn';
 import { searchCatalog } from '../lib/api';
@@ -11,6 +11,7 @@ interface BookEditorProps {
   onSave: (book: BookRecord) => void;
   onDelete: (id: string) => void;
   onAccessRequired: () => void;
+  onCreateImage?: () => void;
   onClose: () => void;
 }
 
@@ -18,7 +19,7 @@ function editionDetails(candidate: CatalogCandidate): string {
   return [candidate.publisher, candidate.publishedDate, candidate.language?.toUpperCase()].filter(Boolean).join(' · ') || 'Altri dati non disponibili';
 }
 
-export default function BookEditor({ book, onSave, onDelete, onAccessRequired, onClose }: BookEditorProps) {
+export default function BookEditor({ book, onSave, onDelete, onAccessRequired, onCreateImage, onClose }: BookEditorProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const errorNotice = useRef<HTMLDivElement>(null);
   const searchController = useRef<AbortController | null>(null);
@@ -126,6 +127,7 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, o
           <div className="editor-cover"><BookOpen size={26} strokeWidth={1.4} /></div>
           <div><h3>{book.title || 'Nuovo libro'}</h3><p>{book.authors.join(', ') || 'Autore da completare'}</p></div>
         </div>
+        {onCreateImage && book.title.trim() && <div className="editor-studio-action"><button className="button secondary" type="button" onClick={onCreateImage}><ImagePlus size={20}/>Crea immagine</button><span>Apri questo libro in Studio.</span></div>}
 
         <div className="editor-tabs" role="tablist" aria-label="Dettagli del libro" onKeyDown={(event) => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;

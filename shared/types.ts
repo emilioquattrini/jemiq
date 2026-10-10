@@ -24,6 +24,9 @@ export interface CatalogCandidate {
   publishedDate: string | null;
   language: string | null;
   pageCount: number | null;
+  /** Plain-text synopsis supplied by this edition's catalogue record, when available. */
+  description?: string | null;
+  categories?: string[];
   thumbnail: string | null;
   source: CatalogSource;
   sourceUrl: string;
@@ -42,6 +45,9 @@ export interface BookRecord {
   publishedDate: string | null;
   language: string | null;
   pageCount: number | null;
+  /** Optional catalogue metadata; never inferred from a title or copied from another edition. */
+  description?: string | null;
+  categories?: string[];
   thumbnail: string | null;
   source: CatalogSource | null;
   sourceUrl: string | null;
@@ -71,7 +77,7 @@ export type ScanEvent =
   | { type: 'done'; warnings: string[]; elapsedMs: number }
   | { type: 'error'; error: string; code: string };
 
-export interface HealthStatus { recognitionReady: boolean; accessRequired: boolean }
+export interface HealthStatus { recognitionReady: boolean; accessRequired: boolean; studioReady?: boolean }
 export interface PreparedImage { dataUrl: string; data: string; mimeType: 'image/jpeg'; width: number; height: number }
 
 export const STATUS_LABELS: Record<BookStatus, string> = {

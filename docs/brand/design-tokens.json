@@ -1,0 +1,150 @@
+{
+  "name": "Jemiq",
+  "version": "1.0",
+  "theme": "light",
+  "kind": "design specification",
+  "color": {
+    "brand": {
+      "ink": "#172A31",
+      "coral": "#F36B4F",
+      "coralText": "#B23F2A"
+    },
+    "surface": {
+      "canvas": "#F7F8F6",
+      "panel": "#FFFFFF",
+      "selected": "#EBF2FF"
+    },
+    "text": {
+      "primary": "#172A31",
+      "secondary": "#52616B",
+      "inverse": "#FFFFFF"
+    },
+    "border": {
+      "control": "#7C8B95",
+      "subtle": "#D8DFE2"
+    },
+    "action": {
+      "primary": "#172A31",
+      "primaryText": "#FFFFFF",
+      "accent": "#F36B4F",
+      "accentText": "#172A31",
+      "focus": "#2463EB"
+    },
+    "status": {
+      "confirmed": {
+        "foreground": "#216B52",
+        "background": "#E8F4ED"
+      },
+      "review": {
+        "foreground": "#7D570D",
+        "background": "#FFF3D6"
+      },
+      "error": {
+        "foreground": "#B42318",
+        "background": "#FDECEC"
+      },
+      "neutral": {
+        "foreground": "#52616B",
+        "background": "#EEF1F2"
+      }
+    }
+  },
+  "font": {
+    "family": [
+      "Noto Sans",
+      "system-ui",
+      "sans-serif"
+    ],
+    "weight": {
+      "regular": 400,
+      "bold": 700
+    },
+    "numeric": "tabular-nums"
+  },
+  "type": {
+    "page": {
+      "fontSize": 28,
+      "lineHeight": 36,
+      "fontWeight": 700
+    },
+    "section": {
+      "fontSize": 20,
+      "lineHeight": 28,
+      "fontWeight": 700
+    },
+    "body": {
+      "fontSize": 16,
+      "lineHeight": 24,
+      "fontWeight": 400
+    },
+    "table": {
+      "fontSize": 14,
+      "lineHeight": 20,
+      "fontWeight": 400
+    },
+    "meta": {
+      "fontSize": 12,
+      "lineHeight": 16,
+      "fontWeight": 400
+    }
+  },
+  "spacingPx": [
+    4,
+    8,
+    12,
+    16,
+    24,
+    32,
+    48
+  ],
+  "radiusPx": {
+    "control": 8,
+    "panel": 12,
+    "pill": 999
+  },
+  "targetPx": {
+    "mobile": 48,
+    "desktop": 40
+  },
+  "rowHeightPx": {
+    "comfortable": 48,
+    "compact": 40,
+    "twoLines": 56
+  },
+  "focus": {
+    "widthPx": 3,
+    "offsetPx": 2,
+    "context": "light-surfaces"
+  },
+  "iconPx": [
+    20,
+    24
+  ],
+  "motionMs": {
+    "fast": 120,
+    "standard": 180,
+    "reduced": 0
+  },
+  "logoMinWidthPx": {
+    "wordmark": 120,
+    "symbol": 24
+  },
+  "states": {
+    "identification": [
+      "Corrispondenza proposta",
+      "Più edizioni possibili",
+      "Nessuna corrispondenza"
+    ],
+    "review": [
+      "Da controllare",
+      "Confermato dall’utente",
+      "Escluso"
+    ]
+  },
+  "copy": {
+    "headline": "Dalla foto ai dati dei tuoi libri.",
+    "process": "Fotografa. Controlla. Esporta.",
+    "primaryCapture": "Scatta una foto",
+    "primaryConfirm": "Conferma questa edizione"
+  }
+}

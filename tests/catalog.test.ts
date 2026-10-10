@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CatalogError, createCatalogService } from '../server/catalog';
 import type { Observation } from '../shared/types';
+import { bookSchema } from '../shared/schemas';
+import { confirmCandidate, updateBook } from '../src/lib/books';
 
 const ISBN = '9780743273565';
 const OTHER_ISBN = '9780306406157';
@@ -61,6 +63,103 @@ const json = (value: unknown, status = 200) => Response.json(value, { status });
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('sourced Studio metadata', () => {
+  it('retains bounded plain-text description/categories on a verified edition and through client persistence', async () => {
+    const fetchImpl = fetchMock(() => json({ items: [googleVolume({
+      description: '<p>A&nbsp;<b>coastal garden</b> &amp; café.</p><script>private script</script>\u0000',
+      categories: ['Fiction', '<b>Nature</b>', 'Fiction'],
+    })] }));
+    const book = await createCatalogService({ fetchImpl }).enrich(observation({ visibleIsbn: ISBN }));
+    expect(book.description).toBe('A coastal garden & café.');
+    expect(book.categories).toEqual(['Fiction', 'Nature']);
+    expect(bookSchema.parse(book).description).toBe(book.description);
+    expect(bookSchema.parse(book).candidates[0].categories).toEqual(book.categories);
+    const confirmed = confirmCandidate(book, book.candidates[0]);
+    expect(confirmed.description).toBe(book.description);
+    expect(updateBook(confirmed, { title: 'A different book' })).toMatchObject({ description: null, categories: [], source: null });
+  });
+
+  it('keeps proposed synopsis out of observed book fields until the edition is chosen', async () => {
+    const fetchImpl = fetchMock(() => json({ items: [googleVolume({ description: 'Source synopsis', categories: ['Fiction'] })] }));
+    const book = await createCatalogService({ fetchImpl }).enrich(observation());
+    expect(book.description).toBeUndefined();
+    expect(book.categories).toBeUndefined();
+    expect(book.candidates[0]).toMatchObject({ description: 'Source synopsis', categories: ['Fiction'] });
+  });
+
+  it('caps provider text/categories and clones categories out of the cache', async () => {
+    const fetchImpl = fetchMock(() => json({ items: [googleVolume({
+      description: 'x'.repeat(10_000), categories: Array.from({ length: 12 }, (_, index) => `${index}:` + 'y'.repeat(200)),
+    })] }));
+    const service = createCatalogService({ fetchImpl });
+    const first = await service.search('Gatsby');
+    expect(first[0].description).toHaveLength(4_000);
+    expect(first[0].categories).toHaveLength(8);
+    expect(first[0].categories![0]).toHaveLength(100);
+    first[0].categories![0] = 'changed by client';
+    expect((await service.search('Gatsby'))[0].categories![0]).not.toBe('changed by client');
+  });
+
+  it('retrieves the selected Google ID from a fixed API endpoint and checks the returned ISBN', async () => {
+    const fetchImpl = fetchMock((url, init) => {
+      expect(url.origin + url.pathname).toBe('https://www.googleapis.com/books/v1/volumes/gatsby-edition');
+      expect(url.searchParams.get('key')).toBe('server-catalog-key');
+      expect(init?.redirect).toBe('error');
+      return json(googleVolume({ description: '<p>Exact edition synopsis.</p>', categories: ['Fiction'] }));
+    });
+    const service = createCatalogService({ fetchImpl, googleBooksApiKey: 'server-catalog-key' });
+    const candidate = await service.getCandidate({ source: 'Google Books', sourceUrl: 'https://books.google.com/books?id=gatsby-edition', isbn13: ISBN });
+    expect(candidate).toMatchObject({ id: 'google:gatsby-edition', isbn13: ISBN, description: 'Exact edition synopsis.', categories: ['Fiction'] });
+    await expect(service.getCandidate({ source: 'Google Books', sourceUrl: 'https://books.google.com/books?id=gatsby-edition', isbn13: OTHER_ISBN })).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'https://example.com/private',
+    'http://books.google.com/books?id=gatsby-edition',
+    'https://books.google.com.evil.example/books?id=gatsby-edition',
+    'https://user:password@books.google.com/books?id=gatsby-edition',
+    'https://books.google.com/books?id=..%2Fprivate',
+    'https://books.google.com/books?id=a&id=b',
+    'https://books.google.com/books?id=a&url=https://example.com',
+    'https://127.0.0.1/books?id=gatsby-edition',
+  ])('rejects untrusted selected source URLs without fetching: %s', async (sourceUrl) => {
+    const fetchImpl = fetchMock(() => json({}));
+    await expect(createCatalogService({ fetchImpl }).getCandidate({ source: 'Google Books', sourceUrl })).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a selected Google ID if the API returns a different record', async () => {
+    const fetchImpl = fetchMock(() => json({ ...googleVolume(), id: 'some-other-edition' }));
+    await expect(createCatalogService({ fetchImpl }).getCandidate({ source: 'Google Books', sourceUrl: 'https://books.google.com/books?id=gatsby-edition' })).resolves.toBeNull();
+  });
+
+  it('reads Open Library description/subjects only from the selected edition response', async () => {
+    const fetchImpl = fetchMock((url) => {
+      expect(url.pathname).toBe('/api/books');
+      expect(url.searchParams.get('bibkeys')).toBe('OLID:OL123M');
+      return json({ 'OLID:OL123M': edition({ description: { value: 'An edition description.' }, subjects: [{ name: 'Fiction' }] }) });
+    });
+    const candidate = await createCatalogService({ fetchImpl, openLibraryIntervalMs: 0 }).getCandidate({ source: 'Open Library', sourceUrl: 'https://openlibrary.org/books/OL123M' });
+    expect(candidate).toMatchObject({ sourceUrl: 'https://openlibrary.org/books/OL123M', description: 'An edition description.', categories: ['Fiction'] });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('does not fetch Open Library work URLs or accept another edition returned for the chosen ID', async () => {
+    const fetchImpl = fetchMock(() => json({ 'OLID:OL123M': edition({ identifiers: { openlibrary: ['OL456M'] } }) }));
+    const service = createCatalogService({ fetchImpl, openLibraryIntervalMs: 0 });
+    await expect(service.getCandidate({ source: 'Open Library', sourceUrl: 'https://openlibrary.org/works/OL123W' })).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await expect(service.getCandidate({ source: 'Open Library', sourceUrl: 'https://openlibrary.org/books/OL123M' })).resolves.toBeNull();
+  });
+
+  it('distinguishes unavailable selected catalogues from absent metadata without exposing provider text', async () => {
+    const fetchImpl = fetchMock(() => new Response('secret provider details', { status: 503 }));
+    const service = createCatalogService({ fetchImpl });
+    await expect(service.getCandidate({ source: 'Google Books', sourceUrl: 'https://books.google.com/books?id=gatsby-edition' })).rejects.toThrow(CatalogError);
+  });
 });
 
 describe('catalog enrichment', () => {

@@ -18,6 +18,8 @@ function headers(): HeadersInit {
   return { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) };
 }
 
+export { headers as apiHeaders, responseError as rejectApiResponse };
+
 async function responseError(response: Response): Promise<never> {
   const body = await response.json().catch(() => ({}));
   throw new ApiError(typeof body.error === 'string' ? body.error : 'Il servizio non risponde. Riprova tra poco.', response.status, body.code);
@@ -26,7 +28,7 @@ async function responseError(response: Response): Promise<never> {
 export async function getHealth(): Promise<HealthStatus> {
   const response = await fetch('/api/health', { signal: AbortSignal.timeout(8000), cache: 'no-store' });
   if (!response.ok) return responseError(response);
-  return z.object({ recognitionReady: z.boolean(), accessRequired: z.boolean() }).parse(await response.json());
+  return z.object({ recognitionReady: z.boolean(), accessRequired: z.boolean(), studioReady: z.boolean().default(false) }).parse(await response.json());
 }
 
 /** Consume actual server events. An interrupted stream must not become a successful scan. */

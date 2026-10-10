@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import { createVisionService } from './vision';
 import { createCatalogService } from './catalog';
+import { createStudioBriefService } from './studio-brief';
+import { createStudioImageService } from './studio-image';
+import { createStudioJobManager } from './studio-jobs';
 
 dotenv.config({ quiet: true });
 const production = process.env.NODE_ENV === 'production';
@@ -15,7 +18,11 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT d
 if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 5) throw new Error('TRUST_PROXY deve indicare il numero di proxy fidati (0–5).');
 const vision = createVisionService({ apiKey: process.env.GEMINI_API_KEY || '', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash' });
 const catalog = createCatalogService({ googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY, userAgent: 'Jemiq/1.0 (https://github.com/emilioquattrini/jemiq)' });
-const app = createApp({ recognize: vision.recognize, catalog, recognitionReady: !!process.env.GEMINI_API_KEY, accessToken: process.env.JEMIQ_ACCESS_TOKEN, production, origin: process.env.APP_ORIGIN || undefined, trustProxy });
+const studioBrief = createStudioBriefService({ apiKey: process.env.GEMINI_API_KEY || '', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash', catalog });
+const imageApiKey = process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || '';
+const studioImage = createStudioImageService({ apiKey: imageApiKey, model: process.env.GEMINI_IMAGE_MODEL || 'gemini-nano-banana-2.1' });
+const studioJobs = createStudioJobManager({ generate: studioImage.generate, maxActive: 1, maxResults: 4, maxTotalBytes: 32 * 1024 * 1024 });
+const app = createApp({ recognize: vision.recognize, catalog, recognitionReady: !!process.env.GEMINI_API_KEY, accessToken: process.env.JEMIQ_ACCESS_TOKEN, production, origin: process.env.APP_ORIGIN || undefined, trustProxy, studio: { ready: !!imageApiKey && process.env.STUDIO_ENABLED !== 'false', createBrief: studioBrief.create, jobs: studioJobs } });
 const server = createServer(app);
 
 if (production) {
@@ -37,6 +44,7 @@ server.listen(port, host, () => {
 });
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => {
+  studioJobs.dispose();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5000).unref();
 });

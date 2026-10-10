@@ -18,6 +18,7 @@ export function confirmCandidate(book: BookRecord, candidate: CatalogCandidate):
     ...book, title: candidate.title, authors: [...candidate.authors], isbn13,
     publisher: candidate.publisher, publishedDate: candidate.publishedDate, language: candidate.language,
     pageCount: candidate.pageCount, thumbnail: candidate.thumbnail, source: candidate.source,
+    description: candidate.description ?? null, categories: [...(candidate.categories ?? [])],
     sourceUrl: candidate.sourceUrl, status: 'confirmed', notes: 'Edizione scelta e confermata dall’utente.',
   };
 }
@@ -41,6 +42,9 @@ export function updateBook(book: BookRecord, patch: Partial<BookRecord>): BookRe
     updated.sourceUrl = null;
     updated.notes = [updated.notes, 'Dati modificati manualmente.'].filter(Boolean).join(' ').slice(0, 2000);
     updated.thumbnail = null;
+    // A sourced synopsis must not outlive a manual change to its bibliographic identity.
+    updated.description = null;
+    updated.categories = [];
     if (identityChanged) {
       // Old edition metadata is not evidence for a newly entered title/ISBN.
       // Keep only fields actually changed by the user in this same edit.
