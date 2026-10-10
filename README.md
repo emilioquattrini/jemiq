@@ -90,6 +90,16 @@ Configurare le chiavi, `JEMIQ_ACCESS_TOKEN` e `APP_ORIGIN` nelle impostazioni de
 
 In produzione, se il codice di accesso manca o è troppo corto, le API restano chiuse. `/api/health` indica soltanto disponibilità del riconoscimento e necessità del codice, senza esporre chiavi o dettagli dell’account.
 
+### Avvio guidato su Render
+
+**[Configura Jemiq su Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Femilioquattrini%2Fjemiq%2Ftree%2Fcodex%2Fjemiq-product)**
+
+Il Blueprint [`render.yaml`](render.yaml) seleziona un servizio Node 24 a Francoforte sul piano Free per le prime prove. Chiede `GEMINI_API_KEY` e un `JEMIQ_ACCESS_TOKEN` di almeno 16 caratteri direttamente nel pannello Render; l'URL pubblico viene configurato automaticamente. Nessun segreto va aggiunto al file YAML.
+
+Il link usa il ramo `codex/jemiq-product`. Gli aggiornamenti automatici sono disabilitati. Il piano Free si sospende dopo 15 minuti senza traffico e richiede circa un minuto per riattivarsi; è adatto al collaudo, mentre l'uso quotidiano richiede un servizio sempre attivo. L'API Gemini ha costi e quote separati.
+
+**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. La configurazione è pronta, ma account, credenziali e primo deploy su Render devono ancora essere completati.
+
 ## Limiti operativi
 
 - Una foto per catalogo; ogni scansione è un’unità di lavoro separata.
