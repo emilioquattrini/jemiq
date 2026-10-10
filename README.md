@@ -8,7 +8,9 @@ Web app in italiano con due percorsi: **Catalogo** trasforma una foto di scaffal
 
 Il repository originale, verificato il 10 ottobre 2026, conteneva soltanto il README di Google AI Studio e un unico commit su `main`. Questa è una nuova implementazione del flusso richiesto; non è stato possibile correggere sorgenti preesistenti perché non erano presenti.
 
-I flussi software sono implementati e coperti da test automatici. **L’accuratezza del riconoscimento e la qualità delle ambientazioni AI su libri reali non sono ancora misurate**: occorrono credenziali operative e un campione controllato. La demo del catalogo è esplicita e marcata anche nei file esportati; non sostituisce mai una chiamata fallita. Studio può proporre un’atmosfera semplice dichiarata quando mancano dati o un servizio utilizzabile, ma non mostra immagini simulate come generazioni riuscite.
+I flussi software sono implementati e coperti da test automatici. **Il riconoscimento operativo è riuscito il 10 ottobre 2026** sul commit `79b3bcb`: dall’app in produzione una chiamata Gemini reale ha letto titolo e autore da una copertina sintetica e completato il catalogo. [Esito e limiti della prova](docs/VALIDATION.md#prova-operativa-del-riconoscimento).
+
+**L’accuratezza su fotografie di libri fisici e la generazione delle ambientazioni Studio restano da collaudare** con un campione controllato. La prova sulla copertina sintetica non è un benchmark di riconoscimento. La demo del catalogo è esplicita e marcata anche nei file esportati; non sostituisce mai una chiamata fallita. Studio può proporre un’atmosfera semplice dichiarata quando mancano dati o un servizio utilizzabile, ma non mostra immagini simulate come generazioni riuscite.
 
 ## Funzioni
 
@@ -119,7 +121,7 @@ Il Blueprint [`render.yaml`](render.yaml) seleziona un servizio Node 24 a Franco
 
 Il link usa il ramo `codex/jemiq-product`. Gli aggiornamenti automatici sono disabilitati. Il piano Free si sospende dopo 15 minuti senza traffico e richiede circa un minuto per riattivarsi; è adatto al collaudo, mentre l'uso quotidiano richiede un servizio sempre attivo. L'API Gemini ha costi e quote separati.
 
-**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. La configurazione Studio riutilizza i segreti già presenti; il modello immagini è predefinito nel codice. Il riconoscimento usa `responseMimeType` e `responseJsonSchema` come l’SDK ufficiale Google e omette `candidateCount`, non supportato da Gemini 3.8. Per applicare le correzioni usa **Manual Deploy → Deploy latest commit**, poi verifica una scansione reale. La versione comprensiva di Studio è stata distribuita, ma le scansioni reali fino al commit `3c78d3b` sono ancora rifiutate. **Come funziona → Verifica connessione AI** avvia un controllo esplicito di solo testo per isolare il problema. Riconoscimento e generazioni Studio restano da collaudare: dettagli nel [protocollo di collaudo](docs/VALIDATION.md).
+**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. La configurazione Studio riutilizza i segreti già presenti; il modello immagini è predefinito nel codice. Il riconoscimento usa `responseMimeType` e `responseJsonSchema` come l’SDK ufficiale Google e omette `candidateCount`, non supportato da Gemini 3.8. Per applicare le correzioni usa **Manual Deploy → Deploy latest commit**, poi verifica una scansione reale. Il commit `79b3bcb`, con schema di generazione compatto e controlli Zod conservati, è stato distribuito su Render e ha completato la scansione di una copertina sintetica tramite Gemini reale. Le precedenti prove fino a `3c78d3b` erano state rifiutate; la loro cronologia è conservata nel [protocollo di collaudo](docs/VALIDATION.md). **Come funziona → Verifica connessione AI** avvia un controllo esplicito di solo testo, riuscito sul commit `33e95af`. Le generazioni Studio con il provider reale restano da verificare.
 
 ## Limiti operativi
 
@@ -159,6 +161,12 @@ Test di checksum, conflitti di edizione/autore/editore/lingua/formato, fallback,
 L’override di `uuid` a 11.1.1 risolve la dipendenza vulnerabile di ExcelJS conservando l’interfaccia CommonJS `v4`. L’esportazione è verificata con round trip del workbook. ExcelJS viene caricato solo quando si richiede XLSX.
 
 Esito del collaudo software del 10 ottobre 2026: **374 test superati in 14 file**, TypeScript e build di produzione riusciti, incluse le regressioni sul formato REST e sui parametri ammessi dai modelli. `npm audit --omit=dev --audit-level=high` non segnala vulnerabilità note.
+
+### Verifica operativa del Catalogo
+
+Su [Jemiq in produzione](https://jemiq-wt9a.onrender.com/), il commit [`79b3bcb`](https://github.com/emilioquattrini/jemiq/commit/79b3bcb8c77bb287840cc842ebae8a7eb32e392a) ha completato la modalità **Tavolo** con `book-test.png` (1200 × 1600 px), lo stesso file sintetico prima rifiutato. La UI ha mostrato **«Risultati disponibili»**, durata **12 s**, una riga **PRIDE AND PREJUDICE / JANE AUSTEN** e ISBN lasciato da verificare, con stato **«Da completare»**. Nell’immagine non è stampato un ISBN. È una richiesta Gemini reale su materiale sintetico, non una misura dell’accuratezza su fotografie di libri fisici. [CI del commit](https://github.com/emilioquattrini/jemiq/actions/runs/38049423861) · [Deploy ed evidenze operative](docs/VALIDATION.md#prova-operativa-del-riconoscimento).
+
+### Verifiche UI Studio
 
 In Chromium sono verificati il percorso grafico su immagini di prova, la conservazione di pixel e trasparenza nel PNG intermedio, il ritaglio prospettico e i due export JPEG. Il flusso Studio completo è stato provato su desktop 1440 × 1050 e viewport mobile 390 × 844 e 320 × 740, con provider simulato: salvataggio delle bozze, doppio clic con un solo POST, recupero dopo perdita della risposta o ricarica durante la generazione, cancellazione e download Post/Storia. I tre passaggi non presentano overflow orizzontale; non sono stati rilevati errori JavaScript. Qualità, tempi e costo delle immagini AI reali restano da misurare. [Protocollo ed evidenze](docs/VALIDATION.md).
 

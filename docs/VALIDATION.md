@@ -1,12 +1,36 @@
 # Collaudo di Jemiq
 
-## Esito software e limite attuale
+## Esito software e operativo
 
-La suite automatica verifica il comportamento del catalogo e di [Jemiq Studio](STUDIO.md) con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI né la qualità fotografica degli sfondi. Le scansioni operative fino al commit `3c78d3b`, distribuito e verificato su Render, hanno restituito `400 / INVALID_ARGUMENT` con il solo messaggio `Request contains an invalid argument.`. L’allineamento alla coppia `responseMimeType` e `responseJsonSchema` dell’SDK ufficiale Google non è stato sufficiente. È disponibile una verifica esplicita di solo testo per isolare accesso e modello da foto e schema bibliografico. Il successo del riconoscimento e delle generazioni Studio con credenziali reali non è ancora attestato.
+La suite automatica verifica il comportamento del catalogo e di [Jemiq Studio](STUDIO.md) con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI né la qualità fotografica degli sfondi. **Il riconoscimento operativo è riuscito sul commit `79b3bcb`**: l’app in produzione ha completato una richiesta Gemini reale su una copertina sintetica, restituendo titolo e autore. La verifica testuale era già riuscita su `33e95af`. L’accuratezza su fotografie di libri fisici e le generazioni Studio con il provider reale restano da collaudare.
+
+Le scansioni operative fino al commit `3c78d3b`, distribuito e verificato su Render, avevano restituito `400 / INVALID_ARGUMENT` con il solo messaggio `Request contains an invalid argument.`. L’allineamento alla coppia `responseMimeType` e `responseJsonSchema` dell’SDK ufficiale Google non era stato sufficiente. La cronologia dei tentativi è conservata sotto; descrive gli esiti osservati in quei momenti, non lo stato del deploy `79b3bcb`.
 
 Una richiesta bibliografica reale con ISBN `9780156453806` ha restituito il volume corretto tramite Open Library mentre Google Books rispondeva HTTP 429. Questo prova il fallback per quella richiesta, non la copertura dell’intero catalogo italiano.
 
 La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controllato: durante il periodo previsto le richieste successive evitano quel catalogo e possono utilizzare l’altro; alla scadenza una nuova richiesta riprova. Il valore predefinito è 30 secondi, con `Retry-After` valido limitato a 60 secondi. Questa verifica automatica è distinta dalla singola prova bibliografica reale.
+
+## Prova operativa del riconoscimento
+
+Osservazione diretta dal browser il **10 ottobre 2026**, dopo che Render ha indicato il deploy come **Live**:
+
+| Elemento | Evidenza |
+| --- | --- |
+| App | [https://jemiq-wt9a.onrender.com/](https://jemiq-wt9a.onrender.com/) |
+| Commit | [`79b3bcb8c77bb287840cc842ebae8a7eb32e392a`](https://github.com/emilioquattrini/jemiq/commit/79b3bcb8c77bb287840cc842ebae8a7eb32e392a) |
+| Deploy Render | [`dep-db52a8jbc2fs73e2jmkg`](https://dashboard.render.com/web/srv-db50r78473hc739faeqg/deploys/dep-db52a8jbc2fs73e2jmkg), Live |
+| Input | `book-test.png`, copertina sintetica 1200 × 1600 px; lo stesso file usato nelle prove prima rifiutate |
+| Modalità | Tavolo |
+| Provider | Richiesta Gemini reale dalla configurazione di produzione, senza risposta simulata |
+| Stato finale della UI | «Risultati disponibili» |
+| Durata indicata dalla UI | 12 s per questa prova |
+| Risultato | Una riga: **PRIDE AND PREJUDICE / JANE AUSTEN** |
+| ISBN | Lasciato da verificare, riga «Da completare»; nell’immagine non è stampato alcun ISBN |
+| Controlli software del commit | 374 test in 14 file, TypeScript e build di produzione superati; [GitHub Actions](https://github.com/emilioquattrini/jemiq/actions/runs/38049423861) |
+
+Il commit compatta soltanto lo schema inviato per la generazione: rimuove vincoli di cardinalità, limiti numerici e `additionalProperties`, e rappresenta `boundingBox` come array nullable al posto di `anyOf`. La validazione Zod conserva i controlli sui campi extra, sul numero di osservazioni, sulle stringhe e sulle coordinate. Il risultato dimostra che questa richiesta compatta è accettata nella configurazione operativa verificata. **Non identifica un singolo vincolo come causa del rifiuto**: le parole chiave rimosse risultano individualmente supportate nella [documentazione degli output strutturati](https://ai.google.dev/gemini-api/docs/generate-content/structured-output).
+
+Questa è una prova completa del collegamento e del percorso di riconoscimento su materiale sintetico. Non è un benchmark di accuratezza su fotografie di libri fisici, non identifica un’edizione e non verifica la generazione di ambientazioni Studio. I 12 secondi sono il valore mostrato per questa singola esecuzione, non una misura delle prestazioni abituali.
 
 ## Verifiche eseguite il 10 ottobre 2026
 
@@ -14,6 +38,7 @@ La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controlla
 | --- | --- |
 | Suite automatica estesa | 374 test superati in 14 file, inclusi catalogo, Studio e regressioni sui contratti REST e sui parametri dei modelli |
 | TypeScript e build di produzione | Superati su Node 24 |
+| Catalogo, Gemini reale in produzione | Commit `79b3bcb`: copertina sintetica riconosciuta, una riga titolo/autore, «Risultati disponibili», 12 s indicati dalla UI |
 | Audit delle dipendenze di produzione | Nessuna vulnerabilità nota segnalata da `npm audit --omit=dev --audit-level=high` |
 | Catalogo, browser desktop | Chromium 153, viewport 1440 px; avvio del bundle di produzione con CSP attiva |
 | Catalogo, browser mobile emulato | Viewport 390 e 320 px; tabella, editor e conferma senza overflow orizzontale |
@@ -43,27 +68,27 @@ Il collaudo UI Studio ha completato sette gruppi di prove, senza chiamate reali 
 6. Ricarica durante un job in esecuzione, recupero soltanto con GET e cancellazione.
 7. Flusso mobile, dimensioni dei controlli, assenza di overflow e download nei due formati.
 
-Restano da verificare nell’ambiente operativo: il successo del riconoscimento con la nuova rappresentazione JSON, la generazione Studio con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali e build Docker. La versione comprensiva di Studio è stata distribuita su Render; questo non certifica il successo delle sue generazioni.
+Restano da verificare nell’ambiente operativo: l’accuratezza del riconoscimento su fotografie di libri fisici, la generazione Studio con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali e build Docker. Il riconoscimento su copertina sintetica è riuscito come documentato sopra. La versione comprensiva di Studio è stata distribuita su Render; questo non certifica il successo delle sue generazioni.
 
-## Correzione del contratto REST Gemini
+## Storico: correzione del contratto REST Gemini
 
 La prima scansione reale ha mostrato un errore di richiesta rifiutata. È stato individuato un difetto concreto nel payload: `generationConfig.responseFormat.text.mimeType` conteneva `application/json`, mentre il riferimento REST e il discovery ufficiale richiedono l'enum `APPLICATION_JSON`.
 
-Il valore è stato corretto e il contratto viene confrontato con un estratto del discovery Google, revisione `20261008`. I MIME dell'immagine (`image/jpeg`, `image/png`, `image/webp`) restano stringhe IANA: il requisito dell'enum riguarda esclusivamente il formato dell'output. Lo schema bibliografico e i controlli ISBN non sono coinvolti.
+Il valore era stato corretto e il contratto confrontato con un estratto del discovery Google, revisione `20261008`. I MIME dell'immagine (`image/jpeg`, `image/png`, `image/webp`) restano stringhe IANA: il requisito dell'enum riguarda esclusivamente `responseFormat.text.mimeType`. In quel passaggio lo schema bibliografico e i controlli ISBN non erano coinvolti. Successivamente il riconoscimento è passato alla coppia `responseMimeType` / `responseJsonSchema`, come descritto sotto.
 
-Il precedente test del payload si aspettava lo stesso valore errato dell'implementazione e non intercettava il difetto. La regressione usa ora un riferimento indipendente. Non sono state eseguite chiamate Gemini con credenziali reali durante questa correzione; dopo l'aggiornamento del servizio Render occorre riprovare la scansione.
+Il precedente test del payload si aspettava lo stesso valore errato dell'implementazione e non intercettava il difetto. La regressione introdotta allora usava un riferimento indipendente. Durante questa prima correzione non erano state eseguite chiamate Gemini con credenziali reali; il collaudo operativo era quindi ancora da svolgere. Le prove successive, compreso l’esito riuscito su `79b3bcb`, sono riportate in questo documento.
 
 Fonti: [riferimento TextResponseFormat](https://ai.google.dev/api/generate-content#TextResponseFormat), [discovery REST v1beta](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta).
 
-## Correzione dei parametri del modello dopo il secondo rifiuto
+## Storico: correzione dei parametri del modello dopo il secondo rifiuto
 
 La richiesta conteneva ancora `generationConfig.candidateCount: 1`. La guida specifica di Gemini 3.8, aggiornata il 9 ottobre 2026, richiede di omettere `candidate_count` per Gemini 3 e successivi. Il discovery generale continua a elencare il campo perché descrive anche modelli precedenti: il controllo del solo enum JSON non intercettava questa incompatibilità.
 
-Rimosso `candidateCount`, mantenendo il modello `gemini-3.8-flash`, l'enum REST `APPLICATION_JSON` e lo schema bibliografico. Non sono stati aggiunti tentativi automatici o chiamate a modelli alternativi.
+In quel passaggio è stato rimosso `candidateCount`, mantenendo il modello `gemini-3.8-flash`, l'enum REST `APPLICATION_JSON` e lo schema bibliografico allora in uso. Non sono stati aggiunti tentativi automatici o chiamate a modelli alternativi.
 
 La nuova regressione usa una fixture ricavata dalle restrizioni documentate del modello e un trasporto simulato che rifiuta i campi non supportati con HTTP 400. Eseguita prima della correzione, fallisce con lo stesso messaggio generico mostrato dall’app; dopo la rimozione del parametro passa. La regressione è mantenuta nella suite estesa di 374 test, con TypeScript e build superati. Anche le richieste Studio omettono `candidateCount`: il servizio testuale usa l’enum `APPLICATION_JSON`, il generatore immagini gli enum del proprio formato REST.
 
-Questa verifica dimostra la rimozione di un difetto documentato del payload, non il successo di una scansione Gemini reale. Non sono state utilizzate credenziali operative durante la correzione. Il corpo dell'errore di produzione non è disponibile, quindi eventuali problemi di chiave, quota o account restano da verificare soltanto se il rifiuto persiste dopo il deploy aggiornato.
+Questa regressione dimostrava la rimozione di un difetto documentato del payload, non il successo di una scansione Gemini reale. Non erano state utilizzate credenziali operative durante quella correzione e il corpo dell’errore di produzione non era ancora disponibile. La diagnostica e i collaudi operativi successivi hanno documentato separatamente i rifiuti persistenti, il collegamento testuale riuscito e infine il riconoscimento riuscito su `79b3bcb`.
 
 Fonti: [Gemini 3.8 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/latest-model), [Gemini 3.6 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.6).
 
@@ -73,11 +98,11 @@ Il server registra `Jemiq Gemini rejection:` seguito da HTTP status, status RPC,
 
 Google documenta anche `400 / INVALID_ARGUMENT / API_KEY_INVALID`, quindi il solo HTTP 400 non dimostra un difetto del payload. Fonte: [GenerateContent API errors](https://ai.google.dev/gemini-api/docs/generate-content/api-errors).
 
-## Compatibilità del formato JSON con il servizio operativo
+## Storico: compatibilità del formato JSON con il servizio operativo
 
 Le scansioni reali sui commit `64f90a1`, `f8b93c1` e `77f1d55` hanno riprodotto il rifiuto anche dopo la rimozione di `candidateCount`. Il log completo ripulito del 10 ottobre non contiene dettagli di campo, quote o credenziali: soltanto `400 / INVALID_ARGUMENT` e `Request contains an invalid argument.`. In Render non è definito un override `GEMINI_MODEL`, quindi il server usa il valore predefinito `gemini-3.8-flash`. Nessuna credenziale è stata letta o modificata.
 
-Per isolare la rappresentazione della richiesta, il riconoscimento sostituisce `responseFormat.text` con `responseMimeType: application/json` e `responseJsonSchema`. Questi sono i nomi emessi dal convertitore `generateContentConfigToMldev` dell’SDK ufficiale JS; `tJsonSchema` lascia lo schema invariato. Foto, modello, prompt, limite di token, schema e validazione Zod restano gli stessi. Si esegue sempre una sola richiesta, senza tentativi automatici.
+Per isolare la rappresentazione della richiesta, il riconoscimento ha sostituito `responseFormat.text` con `responseMimeType: application/json` e `responseJsonSchema`. Questi sono i nomi emessi dal convertitore `generateContentConfigToMldev` dell’SDK ufficiale JS; `tJsonSchema` lascia lo schema invariato. In quel passaggio foto, modello, prompt, limite di token, schema e validazione Zod erano rimasti gli stessi. Anche il successivo collaudo del commit `3c78d3b` aveva riprodotto il rifiuto. Si esegue sempre una sola richiesta di riconoscimento, senza tentativi automatici.
 
 La regressione simula il rifiuto della vecchia rappresentazione e controlla la coppia documentata, inclusi i tipi nullable. Fallisce prima della sostituzione e passa dopo. Come gli altri test con provider simulato, non dimostra da sola che Gemini accetti la richiesta operativa.
 
@@ -87,9 +112,9 @@ Fonti: [GenerateContentConfig SDK](https://googleapis.github.io/js-genai/release
 
 Da **Come funziona → Verifica connessione AI** il browser invia un POST autenticato con corpo vuoto a `/api/vision/check`. Il server costruisce una sola richiesta con il testo fisso `Reply with OK.` e un limite di 256 token. Non riceve prompt o modelli dal client e non invia foto o schemi. L’apertura della pagina e `/api/health` non generano richieste Gemini.
 
-Il controllo condivide protezione di origine e codice di accesso, ha limiti per client e globali, consente una verifica alla volta e termina entro 35 secondi al confine HTTP. Una risposta valida attesta soltanto il collegamento testuale: il riconoscimento fotografico deve ancora superare una scansione effettiva. I rifiuti sono registrati nel log ripulito `Jemiq Gemini text check:`.
+Il controllo condivide protezione di origine e codice di accesso, ha limiti per client e globali, consente una verifica alla volta e termina entro 35 secondi al confine HTTP. Una risposta valida attesta soltanto il collegamento testuale: il riconoscimento fotografico richiede una propria prova operativa. I rifiuti sono registrati nel log ripulito `Jemiq Gemini text check:`.
 
-La verifica testuale operativa sul commit `33e95af` è riuscita: l’app ha ricevuto `{ ready: true }` dal controllo collegato a Gemini. Il server accetta quindi la richiesta testuale con la configurazione in uso; questo non certifica ancora il riconoscimento. Il passo successivo semplifica soltanto lo schema di generazione: elimina vincoli di cardinalità e numerici e rappresenta `boundingBox` con un tipo array nullable, conservando integralmente i controlli Zod su campi extra, quantità, stringhe e coordinate. Il collaudo fotografico di questa semplificazione è ancora da completare.
+La verifica testuale operativa sul commit `33e95af` è riuscita: l’app ha ricevuto `{ ready: true }` dal controllo collegato a Gemini. Questo aveva confermato il collegamento testuale con la configurazione in uso, lasciando ancora da provare il riconoscimento. Il commit `79b3bcb` ha poi compattato lo schema di generazione, conservando i controlli Zod, e ha completato la [prova operativa sulla copertina sintetica](#prova-operativa-del-riconoscimento).
 
 ## Studio: evidenze e confini delle prove
 

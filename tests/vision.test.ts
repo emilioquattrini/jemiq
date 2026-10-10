@@ -52,9 +52,9 @@ describe('vision recognition contract', () => {
     expect(body.systemInstruction.parts[0].text).toContain('UNTRUSTED DATA');
   });
 
-  it('uses the SDK-compatible JSON request when the responseFormat envelope is rejected', async () => {
-    // Reproduce the observed production rejection rather than accepting any body.
-    // The replacement fields follow the official JS SDK's public contract.
+  it('serializes the JSON request using the official SDK field pair', async () => {
+    // This controlled transport protects the selected serialization contract.
+    // It does not establish which part of the production request caused HTTP 400.
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (_url, request) => {
       const config = JSON.parse(String(request?.body)).generationConfig;
       if (Object.hasOwn(config, 'responseFormat')) return Response.json({ error: {

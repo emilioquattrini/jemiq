@@ -267,9 +267,9 @@ export function createVisionService(options: VisionOptions) {
           // still lists it for older models. Omit it and use the single default result.
           // https://ai.google.dev/gemini-api/docs/generate-content/latest-model
           maxOutputTokens: 16_384,
-          // Use the field pair serialized by the official JS SDK. The newer
-          // responseFormat envelope was rejected by the deployed endpoint despite
-          // matching its discovery schema. Keep the same strict JSON Schema.
+          // Use the field pair serialized by the official JS SDK, with a compact
+          // generation schema. The live rejection stopped after schema reduction;
+          // runtime Zod validation retains strict field and coordinate checks.
           // https://googleapis.github.io/js-genai/release_docs/interfaces/types.GenerateContentConfig.html
           responseMimeType: 'application/json',
           responseJsonSchema: responseSchema,
