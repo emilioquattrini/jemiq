@@ -1,0 +1,17 @@
+name: Audit npm su richiesta
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # Avviando questo workflow si inviano nomi/versioni delle dipendenze a npm.
+      # È separato dalla CI automatica, che esegue solo controlli locali.
+      - run: npm ci --ignore-scripts --no-fund --no-audit
+      - run: npm audit --omit=dev --audit-level=high

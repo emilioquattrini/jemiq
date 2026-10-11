@@ -6,7 +6,7 @@ Solo riconoscimento fotografico, verifica bibliografica, cataloghi, persistenza 
 
 ## Prove automatiche
 
-Eseguire `npm run typecheck`, `npm test`, `npm run build`, `npm run build:standalone` e l’audit delle dipendenze di produzione. La build Sites e quella Node sono separate e usano la stessa implementazione API.
+Eseguire `npm run check:runtime`, `npm run typecheck`, `npm test`, `npm run build` e `npm run build:standalone`. La build Sites e quella Node sono separate e usano la stessa implementazione API. Il controllo locale delle dipendenze impedisce regressioni sotto le versioni runtime già verificate; non consulta un database di nuove vulnerabilità.
 
 Le prove HTTP mantengono una connessione reale al server Node per verificare progressione dei libri, ammissione delle richieste, disconnessione, timeout e conservazione dei risultati parziali. I test del nuovo archivio eseguono SQL su SQLite reale, simulando solo il servizio oggetti R2. Gli errori pubblici devono essere privi di chiavi e dati grezzi del provider.
 
@@ -37,6 +37,14 @@ Lo script `tests/live-smoke.mjs` documenta il collaudo ripetibile. È escluso da
 Sul sito pubblicato eseguire una sola chiamata esplicita di controllo testo e una scansione con immagine nota. Verificare gli eventi NDJSON, il titolo/autore osservato, gli avvisi e l’assenza di ISBN inventato. Registrare separatamente che il materiale di prova è sintetico quando non deriva da una foto di un libro reale.
 
 Controllare anche un salvataggio con foto, il recupero della stessa foto, l’aggiornamento con revisione, il rifiuto di una revisione obsoleta, la separazione dei proprietari e l’eliminazione del catalogo di prova. Rimuovere i dati di collaudo creati appositamente e disattivare l’eventuale accesso tecnico temporaneo.
+
+## Controllo delle dipendenze effettivamente pubblicate
+
+Il controllo esteso del pacchetto Worker ha individuato `react-server-dom-webpack` tra i componenti incorporati nel server, benché fosse classificato come dipendenza di sviluppo. React, React DOM e RSC sono stati allineati a `19.2.8`, la correzione indicata nell'[advisory React GHSA-wx67-qw84-cm4g](https://github.com/react/react/security/advisories/GHSA-wx67-qw84-cm4g). RSC è ora una dipendenza di produzione, verificata dal controllo locale della CI e inclusa in un eventuale audit di produzione.
+
+La ripetizione dell'audit online dopo questo aggiornamento è stata bloccata dalla revisione automatica degli accessi, perché invia al registro npm l'albero delle dipendenze e metadati del progetto. Non viene presentata come eseguita. Per evitare lo stesso invio indiretto, la CI ordinaria installa con `--no-audit` ed esegue `check:runtime`; il workflow «Audit npm su richiesta» è separato e richiede avvio esplicito. Il precedente esito dell'audit resta riferito alla versione e alla classificazione delle dipendenze allora testate.
+
+Il precedente audit esteso segnalava inoltre dipendenze degli strumenti di build e collaudo (`braces`, `image-size`, `undici`, `ws` e relativi pacchetti dipendenti). Nell'artefatto Worker esaminato non sono stati riscontrati il loro codice o import esterni che li carichino: `image-size`, in particolare, è usato da Vinext per i metadati durante la build. Queste segnalazioni della toolchain restano distinte dal controllo delle dipendenze di produzione; non si dichiara un audit esteso interamente privo di segnalazioni.
 
 ## Limiti del collaudo
 
