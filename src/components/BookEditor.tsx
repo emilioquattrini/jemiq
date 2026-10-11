@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { AlertCircle, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, LoaderCircle, Search, X } from 'lucide-react';
 import type { BookRecord, CatalogCandidate } from '../../shared/types';
+import { MAX_BOOK_QUANTITY } from '../../shared/types';
+import { observationsFor } from '../../shared/book-groups';
 import { isValidIsbn, toIsbn13 } from '../../shared/isbn';
 import { searchCatalog } from '../lib/api';
 import { confirmCandidate, updateBook } from '../lib/books';
+import BookCover from './BookCover';
 
 interface BookEditorProps {
   book: BookRecord;
@@ -41,6 +44,7 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, a
   const [searchError, setSearchError] = useState<string | null>(null);
   const [accessRequired, setAccessRequired] = useState(false);
   const [tab, setTab] = useState<'details' | 'editions'>(book.status === 'review' && book.candidates.length ? 'editions' : 'details');
+  const observations = observationsFor(book).filter((observation) => observation.evidence || observation.position || observation.title || observation.authors.length || observation.visibleIsbn || observation.publisher || observation.language || observation.boundingBox);
 
   useEffect(() => {
     const element = dialog.current;
@@ -57,7 +61,7 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, a
     setError(null);
     if (!title.trim()) { setError('Inserisci almeno il titolo del libro.'); return; }
     const count = Number(quantity);
-    if (!Number.isInteger(count) || count < 1 || count > 9999) { setError('La quantità deve essere un numero intero tra 1 e 9999.'); return; }
+    if (!Number.isInteger(count) || count < 1 || count > MAX_BOOK_QUANTITY) { setError(`La quantità deve essere un numero intero tra 1 e ${MAX_BOOK_QUANTITY.toLocaleString('it-IT')}.`); return; }
     if (isbn.trim() && !isValidIsbn(isbn)) { setError('L’ISBN non è valido: controlla tutte le cifre oppure lascia il campo vuoto.'); return; }
     const editedAuthors = authors.split(';').map((author) => author.trim()).filter(Boolean);
     if (editedAuthors.length > 30 || editedAuthors.some((author) => author.length > 2000)) { setError('Inserisci al massimo 30 autori, separati da un punto e virgola.'); return; }
@@ -125,9 +129,10 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, a
         </header>
 
         <div className="editor-book-heading">
-          <div className="editor-cover"><BookOpen size={26} strokeWidth={1.4} /></div>
-          <div><h3>{book.title || 'Nuovo libro'}</h3><p>{book.authors.join(', ') || 'Autore da completare'}</p></div>
+          <BookCover book={book} className="editor-book-cover"/>
+          <div><h3>{book.title || 'Nuovo libro'}</h3><p>{book.authors.join(', ') || 'Autore da completare'}</p><p>{book.quantity.toLocaleString('it-IT')} {book.quantity === 1 ? 'copia in catalogo' : 'copie in catalogo'}</p></div>
         </div>
+        {book.quantity > 1 && <p className="group-edit-note">Le modifiche e l’edizione che confermi si applicano a tutte le <strong>{book.quantity.toLocaleString('it-IT')} copie</strong> di questa riga.</p>}
 
         <div className="editor-tabs" role="tablist" aria-label="Dettagli del libro" onKeyDown={(event) => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -142,16 +147,24 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, a
         {tab === 'details' ? (
           <form className="editor-form" id="panel-details" role="tabpanel" aria-labelledby="tab-details" onSubmit={save}>
             <div className="dialog-scroll">
-              {(book.observation.evidence || book.observation.visibleIsbn) && <div className="evidence-note"><BookOpen size={16} /><div><strong>Letto nella foto</strong>{book.observation.evidence && <p>{book.observation.evidence}</p>}{book.observation.visibleIsbn && <p>ISBN osservato: <strong>{book.observation.visibleIsbn}</strong></p>}{book.observation.position && <small>Posizione: {book.observation.position}</small>}</div></div>}
+              {observations.length > 0 && <section className="evidence-note group-evidence" aria-labelledby="photo-evidence-title"><BookOpen size={16}/><div><h3 id="photo-evidence-title">{observations.length === 1 ? 'Letto nella foto' : `${observations.length} letture nella foto`}</h3><ol>{observations.map((observation, index) => <li key={index}>
+                {observations.length > 1 && <strong>Lettura {index + 1}</strong>}
+                {observation.title && <p>{observation.title}{observation.authors.length > 0 && ` — ${observation.authors.join(', ')}`}</p>}
+                {!observation.title && observation.authors.length > 0 && <p>{observation.authors.join(', ')}</p>}
+                {observation.evidence && <p>{observation.evidence}</p>}
+                {observation.visibleIsbn && <p>ISBN osservato: <strong>{observation.visibleIsbn}</strong></p>}
+                {(observation.publisher || observation.language) && <small>{[observation.publisher, observation.language?.toUpperCase()].filter(Boolean).join(' · ')}</small>}
+                {observation.position && <small>Posizione: {observation.position}</small>}
+              </li>)}</ol></div></section>}
               <label className="field-label">Titolo<input value={title} onChange={(event) => { setTitle(event.target.value); setConfirmed(false); }} required maxLength={2000} autoComplete="off" placeholder="Titolo del libro" /></label>
               <label className="field-label">Autore<input value={authors} onChange={(event) => { setAuthors(event.target.value); setConfirmed(false); }} maxLength={2000} autoComplete="off" placeholder="Nome e cognome" /><small>Separa più autori con un punto e virgola.</small></label>
               <div className="form-grid">
                 <label className="field-label">ISBN<input value={isbn} onChange={(event) => { setIsbn(event.target.value); setConfirmed(false); }} maxLength={32} inputMode="text" autoComplete="off" placeholder="ISBN-10 o ISBN-13" aria-describedby="isbn-help" /></label>
-                <label className="field-label">Quantità<input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" min="1" max="9999" step="1" required /></label>
+                <label className="field-label">Quantità<input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" min="1" max={MAX_BOOK_QUANTITY} step="1" required /><small>Puoi correggere il numero delle copie.</small></label>
               </div>
               <p id="isbn-help" className="field-explanation">L’ISBN identifica una specifica edizione. Una copertina simile può avere un ISBN diverso.</p>
               {isbn.trim() && (
-                <label className="confirmation-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>Ho verificato che questo ISBN corrisponde all’edizione fotografata.</span></label>
+                <label className="confirmation-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>{book.quantity > 1 ? 'Ho verificato che questo ISBN corrisponde all’edizione di tutte le copie della riga.' : 'Ho verificato che questo ISBN corrisponde all’edizione fotografata.'}</span></label>
               )}
               <div className="form-grid">
                 <label className="field-label">Editore<input value={publisher} onChange={(event) => { setPublisher(event.target.value); setConfirmed(false); }} maxLength={2000} autoComplete="off" placeholder="Se disponibile" /></label>
@@ -162,12 +175,12 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, a
               {book.source && book.sourceUrl && <p className="source-line">Fonte della scheda <a href={book.sourceUrl} target="_blank" rel="noreferrer noopener">{book.source}<ArrowUpRight size={13} /></a></p>}
               {error && <div ref={errorNotice} className="inline-alert error" role="alert"><AlertCircle size={17} /><span>{error}</span></div>}
             </div>
-            <footer className="dialog-footer"><button className="button text-button danger-text" type="button" onClick={() => { onDelete(book.id); onClose(); }}>Rimuovi libro</button><button className="button primary" type="submit"><Check size={17} />Salva modifiche</button></footer>
+            <footer className="dialog-footer"><button className="button text-button danger-text" type="button" onClick={() => { onDelete(book.id); onClose(); }}>Rimuovi riga</button><button className="button primary" type="submit"><Check size={17} />Salva modifiche</button></footer>
           </form>
         ) : (
           <section id="panel-editions" role="tabpanel" aria-labelledby="tab-editions" className="editions-panel">
             <div className="dialog-scroll">
-              <div className="edition-explanation"><AlertCircle size={18} /><p>Confronta <strong>editore, anno e ISBN</strong> con la copia che hai davanti. Conferma soltanto l’edizione corretta.</p></div>
+              <div className="edition-explanation"><AlertCircle size={18} /><p>Confronta <strong>editore, anno e ISBN</strong> {book.quantity > 1 ? 'con tutte le copie della riga.' : 'con la copia che hai davanti.'} Conferma soltanto l’edizione corretta.</p></div>
               <form className="catalog-search" onSubmit={search}>
                 <label className="sr-only" htmlFor="edition-search">Cerca per titolo, autore o ISBN</label>
                 <div className="search-input"><Search size={17} /><input id="edition-search" value={query} onChange={(event) => setQuery(event.target.value)} maxLength={240} placeholder="Titolo, autore o ISBN" autoComplete="off" /></div>
@@ -182,7 +195,7 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, a
                 {candidates.map((candidate) => (
                   <article className="candidate-card" key={candidate.id}>
                     <div className="candidate-top">
-                      <div className="candidate-cover">{candidate.thumbnail ? <img src={candidate.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = 'none'; }} /> : <BookOpen size={23} strokeWidth={1.4} />}</div>
+                      <BookCover candidate={candidate} className="candidate-book-cover"/>
                       <div><h3>{candidate.title}</h3><p>{candidate.authors.join(', ') || 'Autore non disponibile'}</p><small>{editionDetails(candidate)}</small></div>
                     </div>
                     <div className="candidate-isbn"><span>ISBN</span><strong>{candidate.isbn13 || 'Non disponibile'}</strong></div>

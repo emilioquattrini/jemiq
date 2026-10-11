@@ -6,9 +6,17 @@ Solo riconoscimento fotografico, verifica bibliografica, cataloghi, persistenza 
 
 ## Prove automatiche
 
-Eseguire `npm run check:runtime`, `npm run typecheck`, `npm test`, `npm run build` e `npm run build:standalone`. La build Sites e quella Node sono separate e usano la stessa implementazione API. Il controllo locale delle dipendenze impedisce regressioni sotto le versioni runtime già verificate; non consulta un database di nuove vulnerabilità.
+Eseguire `npm run check:runtime`, `npm run typecheck`, `npm test`, `npm run build`, `npm run build:standalone` e `npm audit --omit=dev --audit-level=high`. La build Sites e quella Node sono separate e usano la stessa implementazione API. Il controllo locale delle dipendenze impedisce regressioni sotto le versioni runtime già verificate; l'audit online consulta le segnalazioni aggiornate.
 
 Le prove HTTP mantengono una connessione reale al server Node per verificare progressione dei libri, ammissione delle richieste, disconnessione, timeout e conservazione dei risultati parziali. I test del nuovo archivio eseguono SQL su SQLite reale, simulando solo il servizio oggetti R2. Gli errori pubblici devono essere privi di chiavi e dati grezzi del provider.
+
+## Quantità e copertine
+
+Le regressioni verificano una riga stabile che passa da quantità 1 a 2 e poi a 3 durante lo streaming, conservando tutte le posizioni fotografiche. Comprendono ISBN-10/ISBN-13 equivalenti, edizioni differenti, dati contraddittori, titoli sconosciuti, quantità corrette manualmente, selezioni parziali e riapertura senza doppio conteggio. Un aggiornamento rifiutato per superamento dei limiti conserva il catalogo precedente e non avvia un salvataggio.
+
+Le copertine sono controllate separatamente dai dati bibliografici: immagini indicative, alias equivalenti di lingua/editore, segnaposto visibile, URL ammessi, autenticazione, assenza di credenziali inoltrate al provider, redirect rifiutati, timeout e dimensioni massime. Il collaudo Excel scrive e riapre i file, controlla quantità e immagini incorporate e verifica il foglio delle prove estese quando le osservazioni non entrano in una singola cella.
+
+Queste nuove regressioni usano risposte controllate per AI, cataloghi bibliografici e immagini: verificano il comportamento dell'applicazione, non misurano l'accuratezza di nuove foto reali o la disponibilità corrente dei fornitori. La prova AI reale riportata sotto resta riferita alla versione e al materiale indicati.
 
 ## Prova bibliografica del 11 ottobre 2026
 
@@ -42,7 +50,7 @@ Controllare anche un salvataggio con foto, il recupero della stessa foto, l’ag
 
 Il controllo esteso del pacchetto Worker ha individuato `react-server-dom-webpack` tra i componenti incorporati nel server, benché fosse classificato come dipendenza di sviluppo. React, React DOM e RSC sono stati allineati a `19.2.8`, la correzione indicata nell'[advisory React GHSA-wx67-qw84-cm4g](https://github.com/react/react/security/advisories/GHSA-wx67-qw84-cm4g). RSC è ora una dipendenza di produzione, verificata dal controllo locale della CI e inclusa in un eventuale audit di produzione.
 
-La ripetizione dell'audit online dopo questo aggiornamento è stata bloccata dalla revisione automatica degli accessi, perché invia al registro npm l'albero delle dipendenze e metadati del progetto. Non viene presentata come eseguita. Per evitare lo stesso invio indiretto, la CI ordinaria installa con `--no-audit` ed esegue `check:runtime`; il workflow «Audit npm su richiesta» è separato e richiede avvio esplicito. Il precedente esito dell'audit resta riferito alla versione e alla classificazione delle dipendenze allora testate.
+La ripetizione dell'audit online era stata bloccata dalla revisione automatica degli accessi per l'invio al registro npm dell'albero delle dipendenze e dei metadati del progetto. Il proprietario ha poi autorizzato esplicitamente l'invio l'11 ottobre 2026. L'audit di produzione è stato rieseguito con React/RSC 19.2.8 e RSC classificato correttamente: **zero vulnerabilità segnalate**. È stato ripristinato anche lo step di audit della CI; l'installazione usa `--no-audit` per evitare un invio duplicato prima dello step dedicato.
 
 Il precedente audit esteso segnalava inoltre dipendenze degli strumenti di build e collaudo (`braces`, `image-size`, `undici`, `ws` e relativi pacchetti dipendenti). Nell'artefatto Worker esaminato non sono stati riscontrati il loro codice o import esterni che li carichino: `image-size`, in particolare, è usato da Vinext per i metadati durante la build. Queste segnalazioni della toolchain restano distinte dal controllo delle dipendenze di produzione; non si dichiara un audit esteso interamente privo di segnalazioni.
 

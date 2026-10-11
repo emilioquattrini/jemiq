@@ -55,6 +55,8 @@ describe('review and edition confirmation', () => {
     expect(confirmed.isbn13).toBe('9780156453806');
     expect(confirmed.status).toBe('confirmed');
     expect(confirmed.sourceUrl).toBe(book.candidates[0].sourceUrl);
+    const withNotes = confirmCandidate({ ...book, notes: 'Prima copia sul tavolo; seconda sullo scaffale.' }, book.candidates[0]);
+    expect(withNotes.notes).toContain('Prima copia sul tavolo; seconda sullo scaffale.');
   });
 
   it('demotes a catalogue verification after manual bibliographical edits', () => {

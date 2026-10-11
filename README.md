@@ -10,7 +10,7 @@ Jemiq trasforma la foto di un tavolo o di uno scaffale di libri in un catalogo m
 
 1. Scatta una foto con la fotocamera o scegli un’immagine JPEG, PNG o WebP.
 2. Seleziona **Scaffale** o **Tavolo** e avvia la lettura.
-3. I libri compaiono progressivamente. Controlla le corrispondenze, scegli un’edizione quando necessario o modifica i dati.
+3. I libri compaiono progressivamente: le copie riconosciute come uguali occupano una riga, con quantità totale e copertina. Controlla le corrispondenze, scegli un’edizione quando necessario o modifica i dati.
 4. Esporta l’elenco selezionato in **CSV o Excel**. Crea un **backup JSON** per trasferire l’intero archivio, comprese le foto.
 
 L’app contiene esclusivamente il riconoscimento fotografico e la gestione del catalogo. La funzione di creazione di immagini per social è stata rimossa su richiesta del proprietario.
@@ -22,6 +22,16 @@ Un ISBN non viene inventato a partire dal titolo. Lo stato **ISBN riscontrato** 
 Un errore su un singolo libro nella risposta AI non elimina gli altri libri validi. Gli avvisi restano nel catalogo e negli export. Un’indisponibilità di Google Books o Open Library non diventa una ricerca riuscita senza risultati: il problema è segnalato e i dati visibili nella foto sono mantenuti.
 
 La demo è un esempio dichiarato, incluso nei file esportati. Non sostituisce automaticamente una scansione fallita. L’accuratezza dipende da luce, dimensione dei caratteri, sovrapposizioni e porzione di copertina o dorso visibile.
+
+### Copie e copertine
+
+Ogni copia fisica leggibile viene rilevata separatamente e poi raggruppata con quelle compatibili. Il catalogo distingue **titoli** e **copie**: tre copie dello stesso libro producono una riga con quantità 3. ISBN diversi o dati di edizione in contrasto restano separati; senza ISBN si confrontano titolo completo, autori e gli altri dati disponibili. Se manca anche l'autore, servono un titolo sufficientemente specifico e un editore o un anno coincidente. I casi insufficienti rimangono da verificare. La quantità è modificabile e non stima libri nascosti dietro un dorso o sotto una pila.
+
+Il raggruppamento conserva testo letto, ISBN osservati e posizioni di tutte le copie. È applicato anche all'apertura dei vecchi cataloghi e agli export, senza duplicare le quantità a ogni aggiornamento o riapertura. Una modifica bibliografica della riga riguarda tutte le copie raggruppate.
+
+Le miniature sono visibili anche su telefono. Quando l'edizione è ancora da scegliere, una copertina coerente con il titolo e i dati disponibili è marcata **Copertina indicativa**: non conferma l'ISBN. Se manca o non si carica, compare **Copertina non disponibile**.
+
+Excel incorpora le miniature JPG/PNG recuperabili e conserva il collegamento alla fonte; CSV contiene il collegamento alla copertina, perché il formato non incorpora immagini. Entrambi conservano le quantità raggruppate. Per mantenere l'esportazione reattiva, il recupero Excel usa un massimo di 48 immagini distinte, tre richieste parallele, 15 secondi complessivi e 10 MiB di immagini; oltre questi limiti rimangono il segnaposto e il collegamento disponibile. I dati dei libri vengono esportati anche quando un'immagine non è raggiungibile.
 
 ## Due modalità di esecuzione
 
@@ -107,11 +117,12 @@ npm run typecheck
 npm test
 npm run build
 npm run build:standalone
+npm audit --omit=dev --audit-level=high
 ```
 
 La CI verifica entrambe le build. Le prove coprono checksum ISBN, corrispondenze e conflitti tra edizioni, risposta AI parzialmente invalida, timeout, cancellazione, flusso NDJSON reale su HTTP, isolamento degli account, concorrenza degli aggiornamenti, backup e import, CSV ed Excel riaperti per verificare i dati.
 
-`check:runtime` controlla localmente le versioni minime già esaminate e la classificazione dei componenti pubblicati; non sostituisce un audit aggiornato. Il workflow GitHub «Audit npm su richiesta», o il comando `npm audit --omit=dev --audit-level=high`, esegue il controllo online solo con avvio esplicito e invia a npm l'elenco delle dipendenze. Vedi nel protocollo di collaudo il limite incontrato durante questa consegna.
+`check:runtime` controlla localmente le versioni minime già esaminate e la classificazione dei componenti pubblicati; non sostituisce un audit aggiornato. Dopo l'autorizzazione esplicita del proprietario, la CI esegue anche `npm audit --omit=dev --audit-level=high`, che invia a npm l'elenco delle dipendenze. Il workflow «Audit npm su richiesta» permette inoltre una verifica separata.
 
 Per Sites: lo schema è in `db/schema.ts`; genera e controlla le migrazioni con `npm run db:generate`. Le migrazioni in `drizzle/` vengono applicate dalla pubblicazione. Non creare tabelle durante le richieste. I binding richiesti sono `DB` e `BUCKET`, dichiarati in `.openai/hosting.json`.
 

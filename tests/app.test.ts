@@ -338,6 +338,32 @@ describe('explicit vision connection checks', () => {
 });
 
 describe('progressive scanning over real HTTP', () => {
+  it('updates one row with the sum of repeated visible copies and preserves every observation', async () => {
+    const app = await launch({ enrichmentConcurrency: 1 });
+    const repeated = [0, 1, 2].map(index => ({ ...observations[0], authors: ['Umberto Eco'], position: `Copia ${index + 1}` }));
+    app.recognize.mockResolvedValue({ observations: repeated, warnings: [] });
+    app.enrich.mockImplementation(async observed => record(observed, repeated.indexOf(observed)));
+    const events = await allEvents(await app.post('/api/scan', scan));
+    const updates = events.filter((event): event is Extract<ScanEvent, { type: 'book' }> => event.type === 'book');
+    expect(updates.map(event => event.book.quantity)).toEqual([1, 2, 3]);
+    expect(updates.map(event => event.completed)).toEqual([1, 2, 3]);
+    expect(new Set(updates.map(event => event.book.id))).toEqual(new Set(['book-0']));
+    expect(updates.at(-1)?.book.observations?.map(item => item.position)).toEqual(['Copia 1', 'Copia 2', 'Copia 3']);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('retains the accumulated quantity if a later lookup interrupts the scan', async () => {
+    const app = await launch({ enrichmentConcurrency: 1 });
+    const repeated = [0, 1, 2].map(index => ({ ...observations[0], authors: ['Umberto Eco'], position: `Copia ${index + 1}` }));
+    app.recognize.mockResolvedValue({ observations: repeated, warnings: [] });
+    app.enrich.mockResolvedValueOnce(record(repeated[0], 0)).mockResolvedValueOnce(record(repeated[1], 1)).mockRejectedValueOnce(new Error('upstream interrupted'));
+    const events = await allEvents(await app.post('/api/scan', scan));
+    const updates = events.filter((event): event is Extract<ScanEvent, { type: 'book' }> => event.type === 'book');
+    expect(updates.at(-1)?.book.quantity).toBe(2);
+    expect(new Set(updates.map(event => event.book.id)).size).toBe(1);
+    expect(events.at(-1)).toMatchObject({ type: 'error', code: 'SCAN_FAILED' });
+  });
+
   it('streams the first book while other lookups are still pending, then completes all three', async () => {
     const app = await launch({ enrichmentConcurrency: 2 });
     const gates = observations.map(() => deferred<BookRecord>());

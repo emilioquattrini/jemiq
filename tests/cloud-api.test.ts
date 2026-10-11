@@ -7,6 +7,7 @@ import { StorageError } from '../server/storage/contracts';
 import { createD1Budget } from '../server/rate-limit';
 import type { SettingsStatus } from '../server/settings';
 import type { BookRecord, Observation, ScanEvent, ScanSession } from '../shared/types';
+import { groupBooks } from '../shared/book-groups';
 
 const ORIGIN = 'https://jemiq.example.test';
 const ACCESS_TOKEN = 'test-only-service-token-never-a-real-secret';
@@ -78,6 +79,22 @@ async function events(response: Response): Promise<ScanEvent[]> {
 }
 
 describe('portable Fetch API authentication and owner isolation', () => {
+  it('round-trips grouped quantities and all physical observations through the durable API', async () => {
+    const { app } = fixture();
+    const first = book(observation('Le città invisibili'));
+    const second = { ...first, id: 'second-copy', observation: { ...first.observation, position: 'Seconda copia' } };
+    const session = { ...catalog(), books: groupBooks([first, second]) };
+    const owner = { ownerId: 'signed-in-owner' };
+    const headers = { 'x-jemiq-owner': owner.ownerId };
+    const saved = await app(request('/api/catalogs/' + session.id, 'PUT', { catalog: session, expectedUpdatedAt: null }, headers), owner);
+    expect(saved.status).toBe(200);
+    const loaded = await app(request('/api/catalogs/' + session.id, 'GET', undefined, headers), owner);
+    const data = await loaded.json() as { catalog: ScanSession };
+    expect(data.catalog.books).toHaveLength(1);
+    expect(data.catalog.books[0].quantity).toBe(2);
+    expect(data.catalog.books[0].observations?.map(item => item.position)).toEqual(['Primo libro', 'Seconda copia']);
+  });
+
   it('requires a trusted platform identity even when a client supplies owner headers or a valid service token', async () => {
     const { app, dependencies, store } = fixture({ accessToken: ACCESS_TOKEN });
     for (const [path, method, body] of [

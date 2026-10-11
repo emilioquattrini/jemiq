@@ -1,4 +1,5 @@
 import type { BookRecord, CatalogCandidate } from '../../shared/types';
+import { MAX_BOOK_QUANTITY } from '../../shared/types';
 import { toIsbn13 } from '../../shared/isbn';
 
 export function createManualBook(): BookRecord {
@@ -19,12 +20,13 @@ export function confirmCandidate(book: BookRecord, candidate: CatalogCandidate):
     publisher: candidate.publisher, publishedDate: candidate.publishedDate, language: candidate.language,
     pageCount: candidate.pageCount, thumbnail: candidate.thumbnail, source: candidate.source,
     description: candidate.description ?? null, categories: [...(candidate.categories ?? [])],
-    sourceUrl: candidate.sourceUrl, status: 'confirmed', notes: 'Edizione scelta e confermata dall’utente.',
+    sourceUrl: candidate.sourceUrl, status: 'confirmed',
+    notes: ['Edizione scelta e confermata dall’utente.', book.notes].filter(Boolean).join('\n').slice(0, 2000),
   };
 }
 
 export function updateBook(book: BookRecord, patch: Partial<BookRecord>): BookRecord {
-  const updated = { ...book, ...patch, id: book.id, observation: book.observation };
+  const updated = { ...book, ...patch, id: book.id, observation: book.observation, ...(book.observations ? { observations: book.observations } : {}) };
   updated.title = updated.title.trim().slice(0, 2000);
   updated.authors = updated.authors.map(author => author.trim()).filter(Boolean).slice(0, 30);
   if (updated.isbn13?.trim()) {
@@ -32,7 +34,7 @@ export function updateBook(book: BookRecord, patch: Partial<BookRecord>): BookRe
     if (!normalized) throw new Error('L’ISBN non è valido: controlla tutte le cifre. Puoi lasciarlo vuoto.');
     updated.isbn13 = normalized;
   } else updated.isbn13 = null;
-  if (!Number.isInteger(updated.quantity) || updated.quantity < 1 || updated.quantity > 9999) throw new Error('Inserisci una quantità tra 1 e 9999.');
+  if (!Number.isInteger(updated.quantity) || updated.quantity < 1 || updated.quantity > MAX_BOOK_QUANTITY) throw new Error(`Inserisci una quantità tra 1 e ${MAX_BOOK_QUANTITY}.`);
   const changed = ['title', 'authors', 'isbn13', 'publisher', 'publishedDate', 'language', 'pageCount'].some(key => JSON.stringify(updated[key as keyof BookRecord]) !== JSON.stringify(book[key as keyof BookRecord]));
   const identityChanged = ['title', 'authors', 'isbn13'].some(key => JSON.stringify(updated[key as keyof BookRecord]) !== JSON.stringify(book[key as keyof BookRecord]));
   if (changed) {
