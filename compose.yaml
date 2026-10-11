@@ -1,0 +1,16 @@
+services:
+  jemiq:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      JEMIQ_DATA_DIR: /app/data
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - jemiq_data:/app/data
+
+volumes:
+  jemiq_data:

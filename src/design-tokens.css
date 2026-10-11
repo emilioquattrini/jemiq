@@ -1,0 +1,72 @@
+/* Jemiq — tema chiaro. Specifica di design 1.0. */
+:root {
+  --jemiq-ink: #172A31;
+  --jemiq-coral: #F36B4F;
+  --jemiq-coral-text: #B23F2A;
+  --jemiq-canvas: #F7F8F6;
+  --jemiq-panel: #FFFFFF;
+  --jemiq-text: #172A31;
+  --jemiq-text-secondary: #52616B;
+  --jemiq-text-inverse: #FFFFFF;
+  --jemiq-border: #7C8B95;
+  --jemiq-divider: #D8DFE2;
+  --jemiq-focus: #2463EB;
+  --jemiq-selected: #EBF2FF;
+  --jemiq-success: #216B52;
+  --jemiq-success-bg: #E8F4ED;
+  --jemiq-review: #7D570D;
+  --jemiq-review-bg: #FFF3D6;
+  --jemiq-error: #B42318;
+  --jemiq-error-bg: #FDECEC;
+  --jemiq-neutral: #52616B;
+  --jemiq-neutral-bg: #EEF1F2;
+  --jemiq-action-primary: var(--jemiq-ink);
+  --jemiq-action-primary-text: var(--jemiq-text-inverse);
+  --jemiq-action-accent: var(--jemiq-coral);
+  --jemiq-action-accent-text: var(--jemiq-ink);
+  --jemiq-font: "Noto Sans", system-ui, sans-serif;
+  --jemiq-weight-regular: 400;
+  --jemiq-weight-bold: 700;
+  --jemiq-type-page: 28px;
+  --jemiq-line-page: 36px;
+  --jemiq-type-section: 20px;
+  --jemiq-line-section: 28px;
+  --jemiq-type-body: 16px;
+  --jemiq-line-body: 24px;
+  --jemiq-type-table: 14px;
+  --jemiq-line-table: 20px;
+  --jemiq-type-meta: 12px;
+  --jemiq-line-meta: 16px;
+  --jemiq-radius-control: 8px;
+  --jemiq-radius-panel: 12px;
+  --jemiq-radius-pill: 999px;
+  --jemiq-target-mobile: 48px;
+  --jemiq-target-desktop: 40px;
+  --jemiq-row-comfortable: 48px;
+  --jemiq-row-compact: 40px;
+  --jemiq-row-two-lines: 56px;
+  --jemiq-focus-width: 3px;
+  --jemiq-focus-offset: 2px;
+  --jemiq-icon-small: 20px;
+  --jemiq-icon-default: 24px;
+  --jemiq-logo-min-width: 120px;
+  --jemiq-symbol-min-width: 24px;
+  --jemiq-space-1: 4px;
+  --jemiq-space-2: 8px;
+  --jemiq-space-3: 12px;
+  --jemiq-space-4: 16px;
+  --jemiq-space-6: 24px;
+  --jemiq-space-8: 32px;
+  --jemiq-space-12: 48px;
+  --jemiq-motion-fast: 120ms;
+  --jemiq-motion-standard: 180ms;
+}
+.jemiq-tabular { font-variant-numeric: tabular-nums; }
+/* Indicatore di focus previsto sulle superfici chiare del tema. */
+.jemiq-focus:focus-visible {
+  outline: var(--jemiq-focus-width) solid var(--jemiq-focus);
+  outline-offset: var(--jemiq-focus-offset);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --jemiq-motion-fast: 0ms; --jemiq-motion-standard: 0ms; }
+}

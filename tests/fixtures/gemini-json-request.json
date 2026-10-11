@@ -1,0 +1,9 @@
+{
+  "source": "https://googleapis.github.io/js-genai/release_docs/interfaces/types.GenerateContentConfig.html",
+  "serializationSource": "https://github.com/googleapis/js-genai/blob/main/src/converters/_models_converters.ts",
+  "retrievedAt": "2026-10-10",
+  "responseMimeType": "application/json",
+  "schemaField": "responseJsonSchema",
+  "mutuallyExclusiveField": "responseSchema",
+  "note": "GenerateContentConfig documents responseMimeType plus responseJsonSchema. The SDK converter sends these exact field names to the Gemini Developer API."
+}
