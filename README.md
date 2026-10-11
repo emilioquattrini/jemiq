@@ -102,14 +102,16 @@ Eliminare un catalogo rimuove la copia attiva locale e quella sul server, compre
 ## Sviluppo e verifica
 
 ```bash
+npm run check:runtime
 npm run typecheck
 npm test
 npm run build
 npm run build:standalone
-npm audit --omit=dev --audit-level=high
 ```
 
 La CI verifica entrambe le build. Le prove coprono checksum ISBN, corrispondenze e conflitti tra edizioni, risposta AI parzialmente invalida, timeout, cancellazione, flusso NDJSON reale su HTTP, isolamento degli account, concorrenza degli aggiornamenti, backup e import, CSV ed Excel riaperti per verificare i dati.
+
+`check:runtime` controlla localmente le versioni minime già esaminate e la classificazione dei componenti pubblicati; non sostituisce un audit aggiornato. Il workflow GitHub «Audit npm su richiesta», o il comando `npm audit --omit=dev --audit-level=high`, esegue il controllo online solo con avvio esplicito e invia a npm l'elenco delle dipendenze. Vedi nel protocollo di collaudo il limite incontrato durante questa consegna.
 
 Per Sites: lo schema è in `db/schema.ts`; genera e controlla le migrazioni con `npm run db:generate`. Le migrazioni in `drizzle/` vengono applicate dalla pubblicazione. Non creare tabelle durante le richieste. I binding richiesti sono `DB` e `BUCKET`, dichiarati in `.openai/hosting.json`.
 
