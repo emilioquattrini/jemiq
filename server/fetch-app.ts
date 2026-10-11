@@ -1,8 +1,10 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { BookRecord, CatalogCandidate, Observation, ScanEvent } from '../shared/types';
+import { groupBooks } from '../shared/book-groups';
 import { VisionError } from './vision';
 import { CatalogError } from './catalog';
+import { CoverError, retrieveCover } from './covers';
 import { StorageError, type CatalogStore } from './storage/contracts';
 import { createMemoryBudget, type RateBudget } from './rate-limit';
 import { settingsInputSchema, type SettingsStatus } from './settings';
@@ -26,6 +28,7 @@ export interface AppOptions extends RecognitionServices {
   enrichmentConcurrency?: number;
   catalogStore?: CatalogStore;
   budget?: RateBudget;
+  coverFetcher?: typeof fetch;
   getServices?: (owner: string) => Promise<RecognitionServices>;
   settings?: {
     editable: boolean;
@@ -62,8 +65,8 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     if (signal.aborted) abort();
   });
 }
-function knownError(error: unknown): error is HttpError | VisionError | CatalogError | StorageError {
-  return error instanceof HttpError || error instanceof VisionError || error instanceof CatalogError || error instanceof StorageError;
+function knownError(error: unknown): error is HttpError | VisionError | CatalogError | StorageError | CoverError {
+  return error instanceof HttpError || error instanceof VisionError || error instanceof CatalogError || error instanceof StorageError || error instanceof CoverError;
 }
 function errorResponse(error: unknown): Response {
   const known = knownError(error);
@@ -114,6 +117,7 @@ export function createFetchApp(options: AppOptions) {
   const activeClients = new Set<string>();
   let activeScans = 0;
   let visionCheckActive = false;
+  let activeCovers = 0;
   const take = (scope: string, key: string, limit: number, windowMs: number) => budget.take(scope, key, limit, windowMs);
   const suppliedOwner = (request: Request, context: RequestContext): string | undefined => {
     if (platform && context.ownerId) return context.ownerId;
@@ -147,6 +151,13 @@ export function createFetchApp(options: AppOptions) {
       throw new HttpError(401, 'ACCESS_REQUIRED', platform ? 'La sessione è scaduta. Riapri Jemiq e accedi al tuo spazio.' : 'Inserisci il codice di accesso di Jemiq.');
     }
     const budgetClient = platform ? owner : client;
+    if (path === '/api/cover' && request.method === 'GET') {
+      if (activeCovers >= 6 || !await take('cover', budgetClient, 240, 10 * 60_000)) throw new HttpError(429, 'COVER_RATE_LIMIT', 'Copertina non disponibile');
+      if (activeCovers >= 6) throw new HttpError(429, 'COVER_BUSY', 'Copertina non disponibile');
+      activeCovers++;
+      try { return await timed(request, 8_000, signal => retrieveCover(url.searchParams.get('url'), signal, options.coverFetcher)); }
+      finally { activeCovers--; }
+    }
     if (path === '/api/settings') {
       if (!options.settings) throw new HttpError(503, 'SETTINGS_NOT_AVAILABLE', 'Le impostazioni sono gestite sul server.');
       if (request.method === 'GET') return Response.json(await options.settings.status(owner));
@@ -226,12 +237,26 @@ export function createFetchApp(options: AppOptions) {
             send({ type: 'observations', total: result.observations.length, warnings: result.warnings });
             if (result.observations.length) send({ type: 'stage', stage: 'enriching', message: 'Cerco i dati nei cataloghi bibliografici.' });
             let next = 0; let completed = 0;
+            const physicalBooks: BookRecord[] = [];
+            let emitted = new Map<string, string>();
             const work = async () => {
               while (next < result.observations.length) {
                 controller.signal.throwIfAborted();
                 const observation = result.observations[next++];
                 const book = await withAbort(services.catalog.enrich(observation, controller.signal), controller.signal);
-                send({ type: 'book', book, completed: ++completed, total: result.observations.length });
+                physicalBooks.push(book);
+                const groups = groupBooks(physicalBooks);
+                const current = new Map(groups.map(group => [group.id, JSON.stringify(group)]));
+                const removedIds = [...emitted.keys()].filter(id => !current.has(id));
+                completed++;
+                let first = true;
+                for (const group of groups) {
+                  if (emitted.get(group.id) === current.get(group.id)) continue;
+                  send({ type: 'book', book: group, completed, total: result.observations.length,
+                    ...(first && removedIds.length ? { removedIds } : {}) });
+                  first = false;
+                }
+                emitted = current;
               }
             };
             await Promise.all(Array.from({ length: Math.min(options.enrichmentConcurrency ?? 3, result.observations.length) }, work));

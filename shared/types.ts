@@ -1,5 +1,7 @@
 export type BookStatus = 'verified' | 'confirmed' | 'review' | 'unresolved';
 export type CatalogSource = 'Google Books' | 'Open Library';
+/** Allows aggregation of all 5000 legacy rows, each previously limited to 9999 copies. */
+export const MAX_BOOK_QUANTITY = 49_995_000;
 
 /** Only information actually visible in the photo. No ISBN inferred from a title. */
 export interface Observation {
@@ -37,6 +39,8 @@ export interface CatalogCandidate {
 export interface BookRecord {
   id: string;
   observation: Observation;
+  /** Evidence for every grouped copy, including the legacy primary observation. */
+  observations?: Observation[];
   title: string;
   authors: string[];
   /** Empty until visible ISBN + consistent catalogue, or explicit user confirmation. */
@@ -73,7 +77,7 @@ export interface ScanSession {
 export type ScanEvent =
   | { type: 'stage'; stage: 'recognizing' | 'enriching'; message: string }
   | { type: 'observations'; total: number; warnings: string[] }
-  | { type: 'book'; book: BookRecord; completed: number; total: number }
+  | { type: 'book'; book: BookRecord; completed: number; total: number; removedIds?: string[] }
   | { type: 'done'; warnings: string[]; elapsedMs: number }
   | { type: 'error'; error: string; code: string };
 
