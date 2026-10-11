@@ -4,6 +4,8 @@
 
 Jemiq trasforma la foto di un tavolo o di uno scaffale di libri in un catalogo modificabile: titolo, autore, ISBN quando riscontrato, editore e altri metadati disponibili. L’interfaccia è in italiano e segue il brand book Jemiq: colore #172A31, accento #F36B4F, logo originale e Noto Sans servito localmente.
 
+**[Apri Jemiq](https://jemiq.emiliojquattrini.chatgpt.site)** — installazione privata del proprietario. Accedi con lo stesso account ChatGPT autorizzato al progetto; la chiave Gemini è configurata nei segreti del server.
+
 ## Il prodotto
 
 1. Scatta una foto con la fotocamera o scegli un’immagine JPEG, PNG o WebP.
