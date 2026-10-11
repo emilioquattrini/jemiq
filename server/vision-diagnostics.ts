@@ -1,4 +1,4 @@
-/** Server-only diagnostics. Full bodies and account metadata are discarded. */
+/** Server-only diagnostics. Provider prose and account metadata are never retained. */
 export interface VisionDiagnostic {
   httpStatus: number;
   providerStatus?: string;
@@ -26,31 +26,22 @@ const fields = new Set(['generationConfig', 'generation_config', 'responseFormat
   'minItems', 'min_items', 'maxItems', 'max_items', 'required', 'properties', 'items',
   'observations', 'warnings', 'title', 'authors', 'visibleIsbn', 'publisher', 'language',
   'evidence', 'position', 'confidence', 'boundingBox']);
-const publicValues = new Set(['APPLICATION_JSON', 'TEXT_PLAIN', 'application/json', 'text/plain',
-  'string', 'number', 'integer', 'boolean', 'array', 'object', 'null']);
+const categoryMessages: Record<string, string> = {
+  INVALID_JSON_PAYLOAD: 'Il provider segnala una struttura JSON della richiesta non valida.',
+  UNKNOWN_FIELD: 'Il provider segnala un campo della richiesta non riconosciuto.',
+  UNSUPPORTED_ARGUMENT: 'Il provider segnala un parametro non supportato.',
+  INVALID_ENUM: 'Il provider segnala un valore enumerato non valido.',
+  INVALID_API_KEY: 'Il provider segnala una chiave API non valida o scaduta.',
+  REGION_RESTRICTED: 'Il provider segnala una limitazione geografica del servizio.',
+  BILLING_REQUIRED: 'Il provider segnala un requisito di fatturazione.',
+  SCHEMA_REJECTED: 'Il provider segnala uno schema non valido o troppo complesso.',
+};
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown> : undefined;
 
-function redactMessage(value: string, sensitiveValues: readonly string[]): string {
-  let result = value;
-  for (const sensitive of sensitiveValues) {
-    if (sensitive) result = result.split(sensitive).join('[REDACTED]');
-  }
-  return result
-    .replace(/https?:\/\/[^\s<>"']+/gi, '[URL]')
-    .replace(/\b(?:projects|consumers)\/[^\s<>"'`,;()\[\]{}]+/gi, '[REDACTED]')
-    .replace(/[A-Za-z0-9_+/=-]{32,}/g, '[REDACTED]')
-    .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`/g, (quoted) => {
-      const inner = quoted.slice(1, -1);
-      return fields.has(inner) || publicValues.has(inner) ? inner : '[REDACTED]';
-    })
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .slice(0, 600);
-}
-
-export function summarizeVisionRejection(httpStatus: number, body: unknown, sensitiveValues: readonly string[] = []): VisionDiagnostic {
+export function summarizeVisionRejection(httpStatus: number, body: unknown): VisionDiagnostic {
   const diagnostic: VisionDiagnostic = { httpStatus, reasons: [], categories: [], fields: [], messages: [] };
   const error = record(record(body)?.error);
   if (!error) return diagnostic;
@@ -73,8 +64,8 @@ export function summarizeVisionRejection(httpStatus: number, body: unknown, sens
       if (typeof description === 'string') messages.push(description);
     }
   }
-  // Status, reasons and field names remain allowlisted; only short redacted error
-  // messages are retained. The caller supplies the actual key, image and prompt.
+  // Classify untrusted provider prose, then discard it. Redacting known patterns
+  // alone cannot reliably remove emails, account IDs, or partial prompt echoes.
   const message = [...messages, ...fieldPaths].join(' ').slice(0, 12_000);
   const categories: Array<[string, RegExp]> = [
     ['INVALID_JSON_PAYLOAD', /invalid json payload/i],
@@ -92,6 +83,9 @@ export function summarizeVisionRejection(httpStatus: number, body: unknown, sens
   }
   diagnostic.reasons = [...new Set(diagnostic.reasons)];
   diagnostic.fields = [...new Set(diagnostic.fields)].slice(0, 24);
-  diagnostic.messages = [...new Set(messages)].slice(0, 4).map((value) => redactMessage(value, sensitiveValues));
+  diagnostic.messages = diagnostic.categories.slice(0, 4).map((category) => categoryMessages[category]);
+  if (!diagnostic.messages.length && diagnostic.providerStatus === 'INVALID_ARGUMENT') {
+    diagnostic.messages.push('Il provider ha rifiutato un argomento della richiesta senza un motivo classificabile.');
+  }
   return diagnostic;
 }

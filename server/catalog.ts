@@ -8,6 +8,8 @@ export interface CatalogServiceOptions {
   userAgent?: string;
   /** Keep the default in production. A shorter interval is useful in isolated tests. */
   openLibraryIntervalMs?: number;
+  /** Bounds a complete lookup, including provider fallback and pacing. */
+  lookupTimeoutMs?: number;
 }
 
 /** A selected catalogue reference, resolved into a fixed provider endpoint on the server. */
@@ -29,11 +31,19 @@ export class CatalogError extends Error {
 
 type JsonObject = Record<string, unknown>;
 type InternalCandidate = CatalogCandidate & { ebookConflict?: boolean };
-type LookupResult = { candidates: InternalCandidate[]; issues: string[] };
+type LookupResult = { candidates: InternalCandidate[]; issues: string[]; incomplete?: boolean };
+
+/** Only locally authored provider messages may enter a book's notes. */
+class ProviderError extends Error {}
+class LookupTimeout extends Error {}
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 15 * 60_000;
 const MAX_CACHE_ENTRIES = 200;
+const MAX_CACHE_BYTES = 8 * 1024 * 1024;
+const MAX_PENDING_REQUESTS = 64;
+const LOOKUP_TIMEOUT_MS = 16_000;
+const TITLE_FALLBACK_DELAY_MS = 1_200;
 const MAX_CANDIDATES = 5;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const DEFAULT_PROVIDER_COOLDOWN_MS = 30_000;
@@ -231,16 +241,17 @@ async function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 async function readJsonBounded(response: Response, source: CatalogSource, signal: AbortSignal): Promise<unknown> {
-  const sizeError = () => new Error(source + ': risposta troppo grande, consulta di nuovo il catalogo.');
+  const sizeError = () => new ProviderError(source + ': risposta troppo grande, consulta di nuovo il catalogo.');
   const declaredSize = Number(response.headers.get('content-length'));
   if (Number.isFinite(declaredSize) && declaredSize > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => undefined);
     throw sizeError();
   }
   const reader = response.body?.getReader();
-  if (!reader) throw new Error(source + ': risposta del catalogo vuota.');
+  if (!reader) throw new ProviderError(source + ': risposta del catalogo vuota.');
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let finished = false;
   const abort = () => { void reader.cancel(signal.reason).catch(() => undefined); };
   signal.addEventListener('abort', abort, { once: true });
   try {
@@ -250,12 +261,12 @@ async function readJsonBounded(response: Response, source: CatalogSource, signal
       if (done) break;
       size += value.byteLength;
       if (size > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
         throw sizeError();
       }
       chunks.push(value);
     }
     throwIfAborted(signal);
+    finished = true;
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) {
@@ -265,6 +276,7 @@ async function readJsonBounded(response: Response, source: CatalogSource, signal
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
   } finally {
     signal.removeEventListener('abort', abort);
+    if (!finished) void reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -344,19 +356,27 @@ function openLibraryCandidate(value: unknown, key: string, exactIsbn?: string): 
   };
 }
 
-function rankCandidates(candidates: InternalCandidate[], query: string): InternalCandidate[] {
+function rankCandidates(candidates: InternalCandidate[], query: string, observation?: Observation): InternalCandidate[] {
   const tokens = normalizedText(query).split(' ').filter((token) => token.length > 1);
   return candidates.map((candidate) => {
     const haystack = normalizedText(candidate.title + ' ' + candidate.authors.join(' '));
     const score = tokens.length ? tokens.filter((token) => haystack.includes(token)).length / tokens.length : 0;
     return { ...candidate, score };
-  }).sort((a, b) => b.score - a.score).slice(0, MAX_CANDIDATES);
+  }).sort((a, b) => (observation
+    ? Number(mismatch(observation, a) !== null) - Number(mismatch(observation, b) !== null) : 0)
+    || b.score - a.score).slice(0, MAX_CANDIDATES);
 }
 
 export function createCatalogService(options: CatalogServiceOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const intervalMs = Math.max(0, options.openLibraryIntervalMs ?? 1_000);
-  const cache = new Map<string, { value: unknown; expiresAt: number }>();
+  const intervalMs = Number.isFinite(options.openLibraryIntervalMs)
+    ? Math.min(60_000, Math.max(0, options.openLibraryIntervalMs!)) : 1_000;
+  const lookupTimeoutMs = Number.isFinite(options.lookupTimeoutMs) && options.lookupTimeoutMs! > 0
+    ? Math.min(30_000, options.lookupTimeoutMs!) : LOOKUP_TIMEOUT_MS;
+  const cache = new Map<string, { value: unknown; expiresAt: number; bytes: number }>();
+  let cacheBytes = 0;
+  type PendingRequest = { promise: Promise<unknown>; controller: AbortController; consumers: number; settled: boolean };
+  const pendingRequests = new Map<string, PendingRequest>();
   const providerCooldowns = new Map<CatalogSource, { until: number; message: string }>();
   let openLibraryTail: Promise<void> = Promise.resolve();
   let nextOpenLibraryStart = 0;
@@ -369,7 +389,39 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
       providerCooldowns.delete(source);
       return;
     }
-    throw new Error(cooldown.message + ' Nuovo tentativo disponibile tra ' + Math.ceil(remainingMs / 1_000) + ' s.');
+    throw new ProviderError(cooldown.message + ' Nuovo tentativo disponibile tra ' + Math.ceil(remainingMs / 1_000) + ' s.');
+  }
+
+  function pauseProvider(source: CatalogSource, message: string, retryAfter: string | null = null) {
+    const until = Date.now() + providerCooldownMs(retryAfter);
+    if ((providerCooldowns.get(source)?.until ?? 0) < until) providerCooldowns.set(source, { until, message });
+  }
+
+  function removeCached(key: string) {
+    const cached = cache.get(key);
+    if (cached) cacheBytes -= cached.bytes;
+    cache.delete(key);
+  }
+
+  function readCached(key: string): { value: unknown } | undefined {
+    const cached = cache.get(key);
+    if (!cached) return;
+    if (cached.expiresAt <= Date.now()) { removeCached(key); return; }
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached;
+  }
+
+  function remember(key: string, value: unknown) {
+    // Conservatively account for UTF-16 strings, as well as the entry count. The
+    // cache must remain small on serverless runtimes and modest Node instances.
+    const bytes = JSON.stringify(value).length * 2;
+    if (bytes > MAX_CACHE_BYTES) return;
+    removeCached(key);
+    for (const [entryKey, entry] of cache) if (entry.expiresAt <= Date.now()) removeCached(entryKey);
+    cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS, bytes });
+    cacheBytes += bytes;
+    while (cache.size > MAX_CACHE_ENTRIES || cacheBytes > MAX_CACHE_BYTES) removeCached(cache.keys().next().value as string);
   }
 
   // One gate shared by every lookup on this service, including parallel scan jobs.
@@ -390,38 +442,40 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
     });
   }
 
-  async function requestJson(url: URL, source: CatalogSource, signal?: AbortSignal): Promise<unknown> {
+  async function performRequest(url: URL, source: CatalogSource, signal: AbortSignal): Promise<unknown> {
     throwIfAborted(signal);
     const key = url.href;
-    const cached = cache.get(key);
-    if (cached && cached.expiresAt > Date.now()) {
-      cache.delete(key);
-      cache.set(key, cached);
-      return cached.value;
-    }
-    if (cached) cache.delete(key);
-    checkProviderCooldown(source);
-    if (source === 'Open Library') await paceOpenLibrary(signal);
-    throwIfAborted(signal);
-    // A queued request may have learned about the outage while waiting for its turn.
-    checkProviderCooldown(source);
     const controller = new AbortController();
+    let networkStarted = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onAbort: (() => void) | undefined;
     try {
       const failure = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          controller.abort();
-          reject(new Error(source + ': tempo di attesa scaduto.'));
+          const message = source + (networkStarted ? ': tempo di attesa scaduto.' : ': coda di richieste occupata, riprova tra poco.');
+          const error = new ProviderError(message);
+          if (networkStarted) pauseProvider(source, message);
+          controller.abort(error);
+          reject(error);
         }, REQUEST_TIMEOUT_MS);
         onAbort = () => {
-          controller.abort();
-          reject(signal?.reason instanceof Error ? signal.reason : new DOMException('Operazione annullata.', 'AbortError'));
+          const error = signal.reason instanceof Error ? signal.reason : new DOMException('Operazione annullata.', 'AbortError');
+          controller.abort(error);
+          reject(error);
         };
-        signal?.addEventListener('abort', onAbort, { once: true });
-        if (signal?.aborted) onAbort();
+        signal.addEventListener('abort', onAbort, { once: true });
+        if (signal.aborted) onAbort();
       });
       const request = (async () => {
+        checkProviderCooldown(source);
+        if (source === 'Open Library') await paceOpenLibrary(controller.signal);
+        throwIfAborted(controller.signal);
+        // Another request can populate the cache or learn about an outage while
+        // this one is waiting for the provider's permitted request rate.
+        const cached = readCached(key);
+        if (cached) return cached.value;
+        checkProviderCooldown(source);
+        networkStarted = true;
         const response = await fetchImpl(url.href, {
           headers: {
             Accept: 'application/json',
@@ -429,47 +483,98 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
               ? { 'User-Agent': options.userAgent ?? 'Jemiq/1.0 (+https://github.com/emilioquattrini/jemiq)' }
               : {}),
           },
-          redirect: 'error',
+          // Workers rejects redirect:'error'; manual also prevents forwarding
+          // an optional catalogue key to a different endpoint.
+          redirect: 'manual',
           signal: controller.signal,
         });
+        if (controller.signal.aborted) {
+          void response.body?.cancel().catch(() => undefined);
+          throwIfAborted(controller.signal);
+        }
+        if (response.status >= 300 && response.status < 400) {
+          void response.body?.cancel().catch(() => undefined);
+          throw new ProviderError(source + ': reindirizzamento inatteso del catalogo.');
+        }
         if (!response.ok) {
           const reason = response.status === 429 ? 'limite di richieste raggiunto'
             : 'servizio temporaneamente non disponibile';
           const message = source + ': ' + reason + ' (HTTP ' + response.status + ').';
-          if (response.status === 429 || response.status === 503) {
-            providerCooldowns.set(source, {
-              until: Date.now() + providerCooldownMs(response.headers.get('retry-after')),
-              message,
-            });
-          }
+          if (response.status === 429 || response.status >= 500) pauseProvider(source, message, response.headers.get('retry-after'));
           void response.body?.cancel().catch(() => undefined);
-          throw new Error(message);
+          throw new ProviderError(message);
         }
         const value = await readJsonBounded(response, source, controller.signal);
         if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-          throw new Error(source + ': risposta del catalogo non valida.');
+          throw new ProviderError(source + ': risposta del catalogo non valida.');
         }
         const data = object(value);
+        if (Object.hasOwn(data, 'error')) throw new ProviderError(source + ': risposta del catalogo non valida.');
         if (source === 'Google Books' && url.pathname === '/books/v1/volumes' && (
           (data.items !== undefined && !Array.isArray(data.items))
           || (data.items === undefined && typeof data.totalItems !== 'number')
         )) {
-          throw new Error(source + ': risposta del catalogo non valida.');
+          throw new ProviderError(source + ': risposta del catalogo non valida.');
         }
         if (source === 'Open Library' && url.pathname === '/search.json' && !Array.isArray(data.docs)) {
-          throw new Error(source + ': risposta del catalogo non valida.');
+          throw new ProviderError(source + ': risposta del catalogo non valida.');
         }
         return value;
       })();
       const value = await Promise.race([request, failure]);
       throwIfAborted(signal);
-      cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
-      while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value as string);
+      remember(key, value);
       return value;
+    } catch (error) {
+      throwIfAborted(signal);
+      if (error instanceof ProviderError) throw error;
+      const message = source + ': impossibile consultare il catalogo.';
+      if (networkStarted) pauseProvider(source, message);
+      throw new ProviderError(message);
     } finally {
       if (timer) clearTimeout(timer);
-      if (onAbort) signal?.removeEventListener('abort', onAbort);
+      if (onAbort) signal.removeEventListener('abort', onAbort);
     }
+  }
+
+  async function requestJson(url: URL, source: CatalogSource, signal?: AbortSignal): Promise<unknown> {
+    throwIfAborted(signal);
+    const key = url.href;
+    const cached = readCached(key);
+    if (cached) return cached.value;
+    let pending = pendingRequests.get(key);
+    if (!pending || pending.controller.signal.aborted) {
+      if (pendingRequests.size >= MAX_PENDING_REQUESTS) throw new ProviderError(source + ': molte ricerche in corso, riprova tra poco.');
+      pending = { promise: Promise.resolve(), controller: new AbortController(), consumers: 0, settled: false };
+      pendingRequests.set(key, pending);
+      pending.promise = performRequest(url, source, pending.controller.signal);
+      const current = pending;
+      const settled = () => {
+        current.settled = true;
+        if (pendingRequests.get(key) === current) pendingRequests.delete(key);
+      };
+      void current.promise.then(settled, settled);
+    }
+    const current = pending;
+    current.consumers++;
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const finish = (result: { value: unknown } | { error: unknown }) => {
+        if (finished) return;
+        finished = true;
+        signal?.removeEventListener('abort', abort);
+        current.consumers--;
+        if (!current.consumers && !current.settled) {
+          current.controller.abort(new DOMException('Nessuna ricerca in attesa.', 'AbortError'));
+          if (pendingRequests.get(key) === current) pendingRequests.delete(key);
+        }
+        if ('error' in result) reject(result.error); else resolve(result.value);
+      };
+      const abort = () => finish({ error: signal?.reason instanceof Error ? signal.reason : new DOMException('Operazione annullata.', 'AbortError') });
+      signal?.addEventListener('abort', abort, { once: true });
+      void current.promise.then((value) => finish({ value }), (error: unknown) => finish({ error }));
+      if (signal?.aborted) abort();
+    });
   }
 
   async function tryProvider(
@@ -482,10 +587,45 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
       return await work();
     } catch (error) {
       throwIfAborted(signal);
-      const message = error instanceof Error && error.message.startsWith(source + ':')
+      const message = error instanceof ProviderError
         ? error.message : source + ': impossibile consultare il catalogo.';
       issues.push(message);
       return [];
+    }
+  }
+
+  async function boundedLookup(
+    work: (signal: AbortSignal, result: LookupResult) => Promise<void>,
+    signal?: AbortSignal,
+  ): Promise<LookupResult> {
+    throwIfAborted(signal);
+    const controller = new AbortController();
+    const result: LookupResult = { candidates: [], issues: [] };
+    const abort = () => controller.abort(signal?.reason instanceof Error ? signal.reason : new DOMException('Operazione annullata.', 'AbortError'));
+    signal?.addEventListener('abort', abort, { once: true });
+    let rejectAbort: () => void = () => undefined;
+    const stopped = new Promise<never>((_, reject) => {
+      rejectAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener('abort', rejectAbort, { once: true });
+    });
+    const timer = setTimeout(() => controller.abort(new LookupTimeout('Catalog lookup deadline')), lookupTimeoutMs);
+    try {
+      if (signal?.aborted) abort();
+      await Promise.race([work(controller.signal, result), stopped]);
+      return { candidates: [...result.candidates], issues: [...result.issues] };
+    } catch (error) {
+      throwIfAborted(signal);
+      if (!(controller.signal.reason instanceof LookupTimeout)) throw error;
+      return {
+        candidates: [...result.candidates],
+        issues: [...result.issues, 'La ricerca nei cataloghi ha raggiunto il tempo disponibile. I dati già ricevuti sono conservati; puoi completare o ripetere la ricerca di questo libro.'],
+        incomplete: true,
+      };
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      controller.signal.removeEventListener('abort', rejectAbort);
+      controller.abort();
     }
   }
 
@@ -527,27 +667,69 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
     return openLibraryEditions(keys, signal);
   }
 
-  async function lookupTitle(query: string, fieldQuery: string, signal?: AbortSignal): Promise<LookupResult> {
-    const issues: string[] = [];
-    let candidates = await tryProvider('Google Books', () => googleSearch(fieldQuery, signal), issues, signal);
-    if (!candidates.length && !issues.length && fieldQuery !== query) {
-      candidates = await tryProvider('Google Books', () => googleSearch(query, signal), issues, signal);
-    }
-    if (!candidates.length) {
-      candidates = await tryProvider('Open Library', () => openLibrarySearch(query, signal), issues, signal);
-    }
-    return { candidates: rankCandidates(candidates, query), issues };
+  async function lookupTitle(query: string, fieldQuery: string, signal?: AbortSignal, observation?: Observation): Promise<LookupResult> {
+    return boundedLookup(async (lookupSignal, result) => {
+      const googleController = new AbortController();
+      const openController = new AbortController();
+      const googleSignal = AbortSignal.any([lookupSignal, googleController.signal]);
+      const openSignal = AbortSignal.any([lookupSignal, openController.signal]);
+      // A quick but unrelated result is not a useful reason to cancel the other
+      // catalogue. Term coverage ranks manual searches; it is not a probability.
+      const useful = (candidates: InternalCandidate[]) => candidates.some((candidate) =>
+        observation ? mismatch(observation, candidate) === null : candidate.score >= 0.6);
+      let googleCandidates: InternalCandidate[] = [];
+      const google = (async (): Promise<LookupResult> => {
+        const issues: string[] = [];
+        let candidates = await tryProvider('Google Books', () => googleSearch(fieldQuery, googleSignal), issues, googleSignal);
+        if (!candidates.length && !issues.length && fieldQuery !== query) {
+          candidates = await tryProvider('Google Books', () => googleSearch(query, googleSignal), issues, googleSignal);
+        }
+        googleCandidates = rankCandidates(candidates, query, observation);
+        return { candidates: googleCandidates, issues };
+      })();
+      const open = (async (): Promise<LookupResult> => {
+        // A fast primary response avoids a second provider call. A slow primary
+        // must not hold up an available fallback until its full timeout expires.
+        await Promise.race([delay(TITLE_FALLBACK_DELAY_MS, openSignal), google.then(() => undefined)]);
+        throwIfAborted(openSignal);
+        const issues: string[] = [];
+        if (useful(googleCandidates)) return { candidates: [], issues };
+        return { candidates: await tryProvider('Open Library', () => openLibrarySearch(query, openSignal), issues, openSignal), issues };
+      })();
+      const pending = new Map([
+        ['google', google.then((value) => ({ provider: 'google', value }))],
+        ['open', open.then((value) => ({ provider: 'open', value }))],
+      ]);
+      try {
+        while (pending.size) {
+          const { provider, value } = await Promise.race(pending.values());
+          pending.delete(provider);
+          result.issues.push(...value.issues);
+          if (value.candidates.length) {
+            // These are suggestions only. An ISBN from a title search is never
+            // attached to the observed book without the user's confirmation.
+            result.candidates = rankCandidates([...result.candidates, ...value.candidates], query, observation);
+            if (useful(result.candidates)) return;
+          }
+        }
+      } finally {
+        googleController.abort();
+        openController.abort();
+      }
+    }, signal);
   }
 
   async function lookupIsbn(isbn: string, signal?: AbortSignal, observation?: Observation): Promise<LookupResult> {
-    const issues: string[] = [];
-    let candidates = await tryProvider('Google Books', () => googleSearch('isbn:' + isbn, signal, isbn), issues, signal);
-    if (!candidates.some((candidate) => !observation || mismatch(observation, candidate) === null)) {
-      const fallback = await tryProvider(
-        'Open Library', () => openLibraryEditions(['ISBN:' + isbn], signal, isbn), issues, signal,
-      );
-      candidates = [...candidates, ...fallback];
-    }
+    const result = await boundedLookup(async (lookupSignal, result) => {
+      result.candidates = await tryProvider('Google Books', () => googleSearch('isbn:' + isbn, lookupSignal, isbn), result.issues, lookupSignal);
+      if (!result.candidates.some((candidate) => !observation || mismatch(observation, candidate) === null)) {
+        const fallback = await tryProvider(
+          'Open Library', () => openLibraryEditions(['ISBN:' + isbn], lookupSignal, isbn), result.issues, lookupSignal,
+        );
+        result.candidates = [...result.candidates, ...fallback];
+      }
+    }, signal);
+    let candidates = result.candidates;
     // A second provider without format data must not erase an explicit ebook conflict.
     if (candidates.some((candidate) => candidate.ebookConflict)) {
       candidates = candidates.map((candidate) => ({ ...candidate, ebookConflict: true, matchReason: EBOOK_REASON }));
@@ -555,7 +737,7 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
     if (observation) {
       candidates.sort((a, b) => Number(mismatch(observation, a) !== null) - Number(mismatch(observation, b) !== null));
     }
-    return { candidates: candidates.slice(0, MAX_CANDIDATES), issues };
+    return { ...result, candidates: candidates.slice(0, MAX_CANDIDATES) };
   }
 
   async function search(query: string, signal?: AbortSignal): Promise<CatalogCandidate[]> {
@@ -564,9 +746,9 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
     if (!cleanQuery) return [];
     const isbn = toIsbn13(cleanQuery);
     const result = isbn ? await lookupIsbn(isbn, signal) : await lookupTitle(cleanQuery, cleanQuery, signal);
-    if (result.candidates.length === 0 && ['Google Books', 'Open Library'].every(
+    if (result.candidates.length === 0 && (result.incomplete || ['Google Books', 'Open Library'].every(
       (source) => result.issues.some((issue) => issue.startsWith(source + ':')),
-    )) {
+    ))) {
       throw new CatalogError();
     }
     return cloneCandidates(result.candidates);
@@ -676,7 +858,7 @@ export function createCatalogService(options: CatalogServiceOptions = {}) {
       const query = [title, authors].filter(Boolean).join(' ');
       const fieldQuery = 'intitle:"' + title.replace(/"/g, '') + '"'
         + (authors ? ' inauthor:"' + authors.replace(/"/g, '') + '"' : '');
-      result = await lookupTitle(query, fieldQuery, signal);
+      result = await lookupTitle(query, fieldQuery, signal, observation);
       if (result.candidates.length) notes.push('Titolo riconosciuto. L’ISBN appartiene a un’edizione proposta: confermala prima di esportarlo.');
       else notes.push('Nessuna edizione trovata: i dati letti nella foto sono conservati e modificabili.');
     } else {

@@ -3,12 +3,9 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
-import { createVisionService } from './vision';
-import { createVisionCheckService } from './vision-check';
-import { createCatalogService } from './catalog';
-import { createStudioBriefService } from './studio-brief';
-import { createStudioImageService } from './studio-image';
-import { createStudioJobManager } from './studio-jobs';
+import { resolve } from 'node:path';
+import { createServices } from './services';
+import { createFileCatalogStore } from './storage/file';
 
 dotenv.config({ quiet: true });
 const production = process.env.NODE_ENV === 'production';
@@ -17,22 +14,8 @@ const host = process.env.HOST || '127.0.0.1';
 const trustProxy = Number(process.env.TRUST_PROXY || 0);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT deve essere un numero tra 1 e 65535.');
 if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 5) throw new Error('TRUST_PROXY deve indicare il numero di proxy fidati (0–5).');
-const vision = createVisionService({
-  apiKey: process.env.GEMINI_API_KEY || '',
-  model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-  onDiagnostic: (diagnostic) => console.warn('Jemiq Gemini rejection:', JSON.stringify(diagnostic)),
-});
-const visionCheck = createVisionCheckService({
-  apiKey: process.env.GEMINI_API_KEY || '',
-  model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-  onDiagnostic: (diagnostic) => console.warn('Jemiq Gemini text check:', JSON.stringify(diagnostic)),
-});
-const catalog = createCatalogService({ googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY, userAgent: 'Jemiq/1.0 (https://github.com/emilioquattrini/jemiq)' });
-const studioBrief = createStudioBriefService({ apiKey: process.env.GEMINI_API_KEY || '', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash', catalog });
-const imageApiKey = process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || '';
-const studioImage = createStudioImageService({ apiKey: imageApiKey, model: process.env.GEMINI_IMAGE_MODEL || 'gemini-nano-banana-2.1' });
-const studioJobs = createStudioJobManager({ generate: studioImage.generate, maxActive: 1, maxResults: 4, maxTotalBytes: 32 * 1024 * 1024 });
-const app = createApp({ recognize: vision.recognize, checkVision: visionCheck.check, catalog, recognitionReady: !!process.env.GEMINI_API_KEY, accessToken: process.env.JEMIQ_ACCESS_TOKEN, production, origin: process.env.APP_ORIGIN || undefined, trustProxy, studio: { ready: !!imageApiKey && process.env.STUDIO_ENABLED !== 'false', createBrief: studioBrief.create, jobs: studioJobs } });
+const services = createServices({ geminiApiKey: process.env.GEMINI_API_KEY || '', googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY || '', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash' });
+const app = createApp({ ...services.fallback, settings: services.settings, authMode: 'token', accessToken: process.env.JEMIQ_ACCESS_TOKEN, production, origin: process.env.APP_ORIGIN || undefined, trustProxy, catalogStore: createFileCatalogStore({ directory: resolve(process.env.JEMIQ_DATA_DIR || '.data') }) });
 const server = createServer(app);
 
 if (production) {
@@ -41,7 +24,7 @@ if (production) {
   app.get('/', (_request, response) => { response.setHeader('Cache-Control', 'no-cache'); response.sendFile(`${client}index.html`); });
 } else {
   const { createServer: createViteServer } = await import('vite');
-  const vite = await createViteServer({ server: { middlewareMode: true, hmr: { server } }, appType: 'spa' });
+  const vite = await createViteServer({ configFile: 'vite.client.config.ts', server: { middlewareMode: true, hmr: { server } }, appType: 'spa' });
   app.use(vite.middlewares);
 }
 
@@ -54,7 +37,6 @@ server.listen(port, host, () => {
 });
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => {
-  studioJobs.dispose();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5000).unref();
 });

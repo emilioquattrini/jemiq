@@ -61,11 +61,17 @@ function fetchMock(handler: (url: URL, init?: RequestInit) => Response | Promise
 
 const json = (value: unknown, status = 200) => Response.json(value, { status });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('sourced Studio metadata', () => {
+describe('sourced edition metadata', () => {
   it('retains bounded plain-text description/categories on a verified edition and through client persistence', async () => {
     const fetchImpl = fetchMock(() => json({ items: [googleVolume({
       description: '<p>A&nbsp;<b>coastal garden</b> &amp; café.</p><script>private script</script>\u0000',
@@ -106,7 +112,7 @@ describe('sourced Studio metadata', () => {
     const fetchImpl = fetchMock((url, init) => {
       expect(url.origin + url.pathname).toBe('https://www.googleapis.com/books/v1/volumes/gatsby-edition');
       expect(url.searchParams.get('key')).toBe('server-catalog-key');
-      expect(init?.redirect).toBe('error');
+      expect(init?.redirect).toBe('manual');
       return json(googleVolume({ description: '<p>Exact edition synopsis.</p>', categories: ['Fiction'] }));
     });
     const service = createCatalogService({ fetchImpl, googleBooksApiKey: 'server-catalog-key' });
@@ -114,6 +120,26 @@ describe('sourced Studio metadata', () => {
     expect(candidate).toMatchObject({ id: 'google:gatsby-edition', isbn13: ISBN, description: 'Exact edition synopsis.', categories: ['Fiction'] });
     await expect(service.getCandidate({ source: 'Google Books', sourceUrl: 'https://books.google.com/books?id=gatsby-edition', isbn13: OTHER_ISBN })).resolves.toBeNull();
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('rejects catalogue redirects without following Location or forwarding a provider key', async () => {
+    const references = [
+      { source: 'Google Books' as const, sourceUrl: 'https://books.google.com/books?id=gatsby-edition' },
+      { source: 'Open Library' as const, sourceUrl: 'https://openlibrary.org/books/OL123M' },
+    ];
+    for (const reference of references) {
+      for (const status of [301, 302, 303, 307, 308]) {
+        const cancel = vi.fn();
+        const response = new Response(new ReadableStream({ cancel }), { status, headers: { Location: 'https://untrusted.example/key-sink' } });
+        const fetchImpl = fetchMock(() => response);
+        const service = createCatalogService({ fetchImpl, googleBooksApiKey: 'private-catalog-key', openLibraryIntervalMs: 0 });
+        await expect(service.getCandidate(reference)).rejects.toThrow(CatalogError);
+        expect(fetchImpl).toHaveBeenCalledOnce();
+        expect(fetchImpl.mock.calls[0][1]?.redirect).toBe('manual');
+        expect(String(fetchImpl.mock.calls[0][0])).not.toContain('untrusted.example');
+        expect(cancel).toHaveBeenCalledOnce();
+      }
+    }
   });
 
   it.each([
@@ -167,7 +193,7 @@ describe('catalog enrichment', () => {
     const fetchImpl = fetchMock((url, init) => {
       expect(url.hostname).toBe('www.googleapis.com');
       expect(url.searchParams.get('q')).toBe('isbn:' + ISBN);
-      expect(init?.redirect).toBe('error');
+      expect(init?.redirect).toBe('manual');
       return json({ items: [googleVolume()] });
     });
     const service = createCatalogService({ fetchImpl });
@@ -469,6 +495,144 @@ describe('catalog enrichment', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it('shares an in-flight ISBN lookup for separate physical copies without sharing editable records', async () => {
+    const response = deferred<Response>();
+    const fetchImpl = fetchMock(() => response.promise);
+    const service = createCatalogService({ fetchImpl });
+    const first = service.enrich(observation({ visibleIsbn: ISBN, position: 'A sinistra' }));
+    const second = service.enrich(observation({ visibleIsbn: ISBN, position: 'A destra' }));
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    response.resolve(json({ items: [googleVolume()] }));
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.id).not.toBe(b.id);
+    expect([a.status, b.status]).toEqual(['verified', 'verified']);
+    expect([a.observation.position, b.observation.position]).toEqual(['A sinistra', 'A destra']);
+    a.candidates[0].authors[0] = 'Edited in one row';
+    expect(b.candidates[0].authors).toEqual(['F. Scott Fitzgerald']);
+  });
+
+  it('cancels one lookup independently while another consumer still needs the same request', async () => {
+    const response = deferred<Response>();
+    let upstreamSignal: AbortSignal | null | undefined;
+    const fetchImpl = fetchMock((_url, init) => { upstreamSignal = init?.signal; return response.promise; });
+    const service = createCatalogService({ fetchImpl });
+    const controller = new AbortController();
+    const cancelled = expect(service.search(ISBN, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    const retained = service.enrich(observation({ visibleIsbn: ISBN }));
+    controller.abort();
+    await cancelled;
+    expect(upstreamSignal?.aborted).toBe(false);
+    response.resolve(json({ items: [googleVolume()] }));
+    await expect(retained).resolves.toMatchObject({ status: 'verified', isbn13: ISBN });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('releases an abandoned shared request without poisoning a later lookup or provider availability', async () => {
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const fetchImpl = fetchMock((_url, init) => {
+      signals.push(init?.signal);
+      return signals.length === 1 ? new Promise<Response>(() => undefined) : json({ items: [googleVolume()] });
+    });
+    const service = createCatalogService({ fetchImpl });
+    const a = new AbortController(); const b = new AbortController();
+    const first = expect(service.search(ISBN, a.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    const second = expect(service.search(ISBN, b.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    a.abort(); b.abort();
+    await Promise.all([first, second]);
+    expect(signals[0]?.aborted).toBe(true);
+    await expect(service.search(ISBN)).resolves.toMatchObject([{ isbn13: ISBN }]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets an available title fallback finish while the primary is stalled, without inferring an ISBN', async () => {
+    vi.useFakeTimers();
+    let googleSignal: AbortSignal | null | undefined;
+    const fetchImpl = fetchMock((url, init) => {
+      if (url.hostname === 'www.googleapis.com') {
+        googleSignal = init?.signal;
+        return new Promise<Response>(() => undefined);
+      }
+      if (url.pathname === '/search.json') return json({ docs: [{ editions: { docs: [{ key: '/books/OL123M' }] } }] });
+      return json({ 'OLID:OL123M': edition() });
+    });
+    const pending = createCatalogService({ fetchImpl, openLibraryIntervalMs: 0 }).enrich(observation());
+    await vi.advanceTimersByTimeAsync(1_199);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    const book = await pending;
+    expect(book).toMatchObject({ status: 'review', isbn13: null, title: 'The Great Gatsby' });
+    expect(book.candidates[0]).toMatchObject({ isbn13: ISBN, source: 'Open Library' });
+    expect(googleSignal?.aborted).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for a pending primary when the faster fallback has no results', async () => {
+    vi.useFakeTimers();
+    const google = deferred<Response>();
+    const fetchImpl = fetchMock((url) => url.hostname === 'www.googleapis.com' ? google.promise : json({ docs: [] }));
+    const service = createCatalogService({ fetchImpl, openLibraryIntervalMs: 0 });
+    let completed = false;
+    const pending = service.search('Gatsby').then((value) => { completed = true; return value; });
+    await vi.advanceTimersByTimeAsync(1_200);
+    expect(completed).toBe(false);
+    google.resolve(json({ items: [googleVolume()] }));
+    await expect(pending).resolves.toMatchObject([{ source: 'Google Books', isbn13: ISBN }]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not stop at an unrelated fast title result when the other catalogue has a coherent edition', async () => {
+    const fetchImpl = fetchMock((url) => {
+      if (url.hostname === 'www.googleapis.com') return json({ items: [googleVolume({ title: 'A different book', authors: ['Someone Else'] })] });
+      if (url.pathname === '/search.json') return json({ docs: [{ editions: { docs: [{ key: '/books/OL123M' }] } }] });
+      return json({ 'OLID:OL123M': edition() });
+    });
+    const book = await createCatalogService({ fetchImpl, openLibraryIntervalMs: 0 }).enrich(observation());
+    expect(book).toMatchObject({ title: 'The Great Gatsby', isbn13: null, status: 'review' });
+    expect(book.candidates[0]).toMatchObject({ source: 'Open Library', title: 'The Great Gatsby', isbn13: ISBN });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('bounds the combined lookup and keeps an already received conflicting edition for review', async () => {
+    vi.useFakeTimers();
+    let fallbackSignal: AbortSignal | null | undefined;
+    const fetchImpl = fetchMock((url, init) => {
+      if (url.hostname === 'www.googleapis.com') return json({ items: [googleVolume({ title: 'Conflicting title' })] });
+      fallbackSignal = init?.signal;
+      return new Promise<Response>(() => undefined);
+    });
+    const pending = createCatalogService({ fetchImpl, lookupTimeoutMs: 50, openLibraryIntervalMs: 0 })
+      .enrich(observation({ visibleIsbn: ISBN }));
+    await vi.advanceTimersByTimeAsync(50);
+    const book = await pending;
+    expect(book).toMatchObject({ title: 'The Great Gatsby', isbn13: null, status: 'review' });
+    expect(book.candidates[0].title).toBe('Conflicting title');
+    expect(book.notes).toContain('tempo disponibile');
+    expect(fallbackSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reports a total search deadline as an outage, never as an empty successful search', async () => {
+    vi.useFakeTimers();
+    const fetchImpl = fetchMock(() => new Promise<Response>(() => undefined));
+    const assertion = expect(createCatalogService({ fetchImpl, lookupTimeoutMs: 50 })
+      .search(ISBN)).rejects.toMatchObject({ code: 'CATALOG_UNAVAILABLE', status: 503 });
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds the cache by response size and keeps recently used metadata', async () => {
+    const fetchImpl = fetchMock(() => json({ items: [googleVolume({ description: 'x'.repeat(500_000) })] }));
+    const service = createCatalogService({ fetchImpl });
+    for (let index = 0; index < 10; index++) await service.search(`Gatsby ${index}`);
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
+    await service.search('Gatsby 9');
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
+    await service.search('Gatsby 0');
+    expect(fetchImpl).toHaveBeenCalledTimes(11);
+  });
+
   it('propagates cancellation and aborts the underlying request without calling a fallback', async () => {
     let requestSignal: AbortSignal | null | undefined;
     const fetchImpl = fetchMock((_url, init) => {
@@ -494,6 +658,44 @@ describe('catalog enrichment', () => {
     expect(book.title).toBe('The Great Gatsby');
     expect(book.status).toBe('unresolved');
     expect(book.notes).toContain('tempo di attesa scaduto');
+  });
+
+  it('pauses a timed-out provider for subsequent books and allows a new attempt after the cooldown', async () => {
+    vi.useFakeTimers();
+    let available = false;
+    let googleCalls = 0;
+    const fetchImpl = fetchMock((url) => {
+      if (url.hostname !== 'www.googleapis.com') return json({ docs: [] });
+      googleCalls++;
+      return available ? json({ items: [googleVolume()] }) : new Promise<Response>(() => undefined);
+    });
+    const service = createCatalogService({ fetchImpl, openLibraryIntervalMs: 0 });
+    const first = service.enrich(observation());
+    await vi.advanceTimersByTimeAsync(8_001);
+    expect((await first).notes).toContain('tempo di attesa scaduto');
+    const second = await service.enrich(observation({ title: 'Another photographed title' }));
+    expect(googleCalls).toBe(1);
+    expect(second.notes).toContain('Nuovo tentativo disponibile');
+    available = true;
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect((await service.enrich(observation())).candidates[0].source).toBe('Google Books');
+    expect(googleCalls).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('pauses a provider after a gateway error and keeps arbitrary transport text out of book notes', async () => {
+    let googleCalls = 0;
+    const fetchImpl = fetchMock((url) => {
+      if (url.hostname === 'www.googleapis.com') { googleCalls++; return json({ error: 'private upstream detail' }, 502); }
+      throw new Error('Open Library: private-key owner@example.invalid');
+    });
+    const service = createCatalogService({ fetchImpl, openLibraryIntervalMs: 0 });
+    const first = await service.enrich(observation());
+    const second = await service.enrich(observation({ title: 'A different lookup' }));
+    expect(googleCalls).toBe(1);
+    expect(first.notes).toContain('HTTP 502');
+    expect(second.notes).toContain('Nuovo tentativo disponibile');
+    expect(first.notes + second.notes).not.toMatch(/private|owner@example/);
   });
 
   it('paces Open Library globally across concurrent lookups', async () => {

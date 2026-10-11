@@ -63,8 +63,13 @@ export function createVisionCheckService(options: VisionCheckOptions) {
               generationConfig: { maxOutputTokens: 256 },
             }),
             signal: controller.signal,
-            redirect: 'error',
+            // Keep credentials at the fixed provider endpoint on Node and Workers.
+            redirect: 'manual',
           });
+          if (response.status >= 300 && response.status < 400) {
+            void response.body?.cancel().catch(() => undefined);
+            throw upstreamError(response);
+          }
           if (!response.ok) {
             if (options.onDiagnostic) {
               let rejection: unknown;
@@ -72,7 +77,7 @@ export function createVisionCheckService(options: VisionCheckOptions) {
                 rejection = await readBoundedJson(response,
                   AbortSignal.any([controller.signal, AbortSignal.timeout(1500)]), 16 * 1024);
               } catch { /* Keep the HTTP error if the diagnostic body is unusable. */ }
-              try { options.onDiagnostic(summarizeVisionRejection(response.status, rejection, [apiKey])); }
+              try { options.onDiagnostic(summarizeVisionRejection(response.status, rejection)); }
               catch { /* Logging must not alter the request result. */ }
             } else {
               void response.body?.cancel().catch(() => undefined);

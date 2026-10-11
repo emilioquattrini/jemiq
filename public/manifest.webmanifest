@@ -1,0 +1,12 @@
+{
+  "id": "/",
+  "name": "Jemiq · Il tuo catalogo di libri",
+  "short_name": "Jemiq",
+  "lang": "it",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F8F7F4",
+  "theme_color": "#172A31",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -13,7 +13,7 @@ describe('server-only Gemini diagnostics', () => {
       status: 'INVALID_ARGUMENT', message: 'API key not valid. Please pass a valid API key. private-secret',
       details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'API_KEY_INVALID',
         metadata: { apiKey: 'private-secret', consumer: 'private-project' } }],
-    } }, ['private-secret']);
+    } });
     expect(diagnostic).toMatchObject({ httpStatus: 400, providerStatus: 'INVALID_ARGUMENT',
       reasons: ['API_KEY_INVALID'], categories: ['INVALID_API_KEY'] });
     expect(JSON.stringify(diagnostic)).not.toMatch(/private-secret|private-project|apiKey/);
@@ -24,7 +24,7 @@ describe('server-only Gemini diagnostics', () => {
       status: 'INVALID_ARGUMENT',
       message: `Invalid JSON payload received. Unknown name "responseFormat" at 'generation_config': Cannot find field. Private prompt: confidential-book. Image: ${image.data}`,
       details: [{ reason: 'SENSITIVE_UNKNOWN_REASON' }],
-    } }, ['confidential-book', image.data]);
+    } });
     expect(diagnostic.categories).toEqual(['INVALID_JSON_PAYLOAD', 'UNKNOWN_FIELD']);
     expect(diagnostic.fields).toEqual(['responseFormat', 'generation_config']);
     expect(JSON.stringify(diagnostic)).not.toMatch(/confidential-book|SENSITIVE_UNKNOWN_REASON|iVBOR/);
@@ -63,18 +63,18 @@ describe('server-only Gemini diagnostics', () => {
     } });
     expect(diagnostic.fields).toEqual(expect.arrayContaining(['generation_config', 'response_format', 'responseFormat']));
     expect(diagnostic.categories).toContain('UNKNOWN_FIELD');
-    expect(diagnostic.messages).toHaveLength(2);
+    expect(diagnostic.messages).toEqual(['Il provider segnala un campo della richiesta non riconosciuto.']);
     expect(JSON.stringify(diagnostic)).not.toMatch(/private-title|private-account|A{32}/);
   });
 
-  it('preserves public output-format constants and JSON types in rejection messages', () => {
+  it('retains the rejected field without copying free-form provider text into diagnostics', () => {
     const diagnostic = summarizeVisionRejection(400, { error: {
       status: 'INVALID_ARGUMENT',
       message: 'Invalid value at "mimeType": "APPLICATION_JSON". Expected "application/json"; "TEXT_PLAIN" maps to "text/plain". Types: "string", "number", "integer", "boolean", "array", "object", "null". Value: "private-title".',
     } });
-    expect(diagnostic.messages).toEqual([
-      'Invalid value at mimeType: APPLICATION_JSON. Expected application/json; TEXT_PLAIN maps to text/plain. Types: string, number, integer, boolean, array, object, null. Value: [REDACTED].',
-    ]);
+    expect(diagnostic.fields).toContain('mimeType');
+    expect(diagnostic.messages).toEqual(['Il provider ha rifiutato un argomento della richiesta senza un motivo classificabile.']);
+    expect(JSON.stringify(diagnostic)).not.toContain('private-title');
   });
 
   it('redacts project and consumer resource paths even when they are not quoted', () => {
@@ -82,10 +82,21 @@ describe('server-only Gemini diagnostics', () => {
       status: 'INVALID_ARGUMENT',
       message: 'Consumer: projects/demo-project-123; project: projects/123456789012; resource: consumers/private-consumer/services/generative-language; field: "mimeType".',
     } });
-    expect(diagnostic.messages).toEqual([
-      'Consumer: [REDACTED]; project: [REDACTED]; resource: [REDACTED]; field: mimeType.',
-    ]);
+    expect(diagnostic.fields).toContain('mimeType');
     expect(JSON.stringify(diagnostic)).not.toMatch(/demo-project-123|123456789012|private-consumer|generative-language/);
+  });
+
+  it('never retains unquoted emails, account identifiers, network addresses, or partial private text', () => {
+    const privateText = 'A fragment of a confidential document';
+    const diagnostic = summarizeVisionRejection(403, { error: {
+      status: 'PERMISSION_DENIED',
+      message: `Generative Language API is not enabled for project 123456789012. Contact owner@example.invalid at IP 203.0.113.42. Account demo-customer-123: ${privateText}`,
+      details: [{ reason: 'SERVICE_DISABLED', metadata: { project: 'private-project' } }, {
+        '@type': 'type.googleapis.com/google.rpc.LocalizedMessage', message: 'Account 999999999999, amministratore nome@esempio.invalid.',
+      }],
+    } });
+    expect(diagnostic).toMatchObject({ providerStatus: 'PERMISSION_DENIED', reasons: ['SERVICE_DISABLED'] });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/123456789012|999999999999|@|203\.0\.113\.42|demo-customer|confidential|private-project/);
   });
 
   it('does not let a logging failure replace the actionable public error', async () => {

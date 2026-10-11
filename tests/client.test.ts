@@ -1,9 +1,48 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Readable } from 'node:stream';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { createManualBook, confirmCandidate, updateBook, findDuplicates } from '../src/lib/books';
 import { createDemoSession } from '../src/lib/demo';
-import { createCsv, createWorkbook, exportRows, safeCsvCell } from '../src/lib/export';
+import { createCsv, createWorkbook, exportRows, safeCsvCell, EXPORT_COLUMNS } from '../src/lib/export';
 import { readScanStream, searchCatalog, ApiError } from '../src/lib/api';
 import type { ScanEvent } from '../shared/types';
+import ServiceCheck, { getServiceCheckStatus } from '../src/components/ServiceCheck';
+
+describe('AI service availability and authentication messages', () => {
+  const protectedService = { recognitionReady: true, accessRequired: true };
+  const base = { health: protectedService, checkingHealth: false, healthError: null, accessProvided: false };
+
+  it('distinguishes an unconfigured service, a connection failure and a missing legacy access code', () => {
+    expect(getServiceCheckStatus({ ...base, health: { ...protectedService, recognitionReady: false } })).toBe('configuration');
+    expect(getServiceCheckStatus({ ...base, health: null, healthError: 'Non raggiungibile' })).toBe('connection');
+    expect(getServiceCheckStatus(base)).toBe('access');
+    expect(getServiceCheckStatus({ ...base, accessProvided: true })).toBe('ready');
+    expect(getServiceCheckStatus({ ...base, checkingHealth: true })).toBe('loading');
+  });
+
+  it('uses platform sessions without requesting a token, and offers reload after expiration', () => {
+    const platform = { ...base, health: { ...protectedService, authMode: 'platform' as const } };
+    expect(getServiceCheckStatus(platform)).toBe('ready');
+    expect(getServiceCheckStatus({ ...platform, platformAccessExpired: true })).toBe('access');
+    const html = renderToStaticMarkup(createElement(ServiceCheck, {
+      status: 'access', authMode: 'platform', onAccessRequired: () => {}, onRequestAccess: () => {}, onRetryAvailability: () => {},
+    }));
+    expect(html).toContain('La sessione è scaduta');
+    expect(html).toContain('Ricarica Jemiq');
+    expect(html).not.toContain('Inserisci il codice');
+  });
+
+  it('never asks for an access code when the service needs configuration', () => {
+    const html = renderToStaticMarkup(createElement(ServiceCheck, {
+      status: 'configuration', onAccessRequired: () => {}, onRequestAccess: () => {}, onRetryAvailability: () => {},
+    }));
+    expect(html).toContain('Il riconoscimento non è ancora configurato');
+    expect(html).toContain('Ricontrolla disponibilità');
+    expect(html).not.toContain('Inserisci il codice');
+    expect(html).toContain('La lettura di una foto richiede una scansione');
+  });
+});
 
 describe('review and edition confirmation', () => {
   it('never turns a suggested catalogue edition into a verified ISBN without confirmation', () => {
@@ -56,6 +95,26 @@ describe('review and edition confirmation', () => {
 });
 
 describe('exports for spreadsheets', () => {
+  it('preserves scan-wide warnings in a selected CSV row without creating extra book rows', async () => {
+    const session = createDemoSession();
+    session.isDemo = false;
+    session.books.forEach((book, index) => { book.selected = index === 1; });
+    session.warnings = [
+      'Analisi interrotta: il catalogo contiene soltanto i risultati già ricevuti.',
+      'Riflessi sul ripiano; titolo "parziale".\nControllare la foto originale.',
+    ];
+    const ExcelJS = (await import('exceljs')).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = await workbook.csv.read(Readable.from([createCsv(session)]), { parserOptions: { delimiter: ';' } });
+    expect(sheet.rowCount).toBe(2);
+    const warningColumn = EXPORT_COLUMNS.indexOf('Avvisi del catalogo') + 1;
+    expect(warningColumn).toBeGreaterThan(0);
+    expect(sheet.getCell(1, warningColumn).value).toBe('Avvisi del catalogo');
+    expect(sheet.getCell(2, warningColumn).value).toBe(session.warnings.join('\n'));
+    expect(sheet.getCell('B2').value).toBe(session.books[1].title);
+    expect(sheet.getRow(2).cellCount).toBe(EXPORT_COLUMNS.length);
+  });
+
   it('exports only selected rows, keeps uncertain ISBN separate and labels demo data', () => {
     const session = createDemoSession();
     session.books[1].selected = false;

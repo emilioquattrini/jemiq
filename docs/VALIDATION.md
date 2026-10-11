@@ -1,188 +1,27 @@
-# Collaudo di Jemiq
+# Collaudo Jemiq 2
 
-## Esito software e operativo
+## Ambito
 
-La suite automatica verifica il comportamento del catalogo e di [Jemiq Studio](STUDIO.md) con risposte controllate dei provider, inclusi errori e interruzioni. Non misura l’accuratezza dell’AI né la qualità fotografica degli sfondi. **Il riconoscimento operativo è riuscito sul commit `79b3bcb`**: l’app in produzione ha completato una richiesta Gemini reale su una copertina sintetica, restituendo titolo e autore. La verifica testuale era già riuscita su `33e95af`. L’accuratezza su fotografie di libri fisici e le generazioni Studio con il provider reale restano da collaudare.
+Solo riconoscimento fotografico, verifica bibliografica, cataloghi, persistenza ed export. La precedente funzionalità di generazione social è stata rimossa. I risultati storici non vanno presentati come prove della nuova distribuzione.
 
-Le scansioni operative fino al commit `3c78d3b`, distribuito e verificato su Render, avevano restituito `400 / INVALID_ARGUMENT` con il solo messaggio `Request contains an invalid argument.`. L’allineamento alla coppia `responseMimeType` e `responseJsonSchema` dell’SDK ufficiale Google non era stato sufficiente. La cronologia dei tentativi è conservata sotto; descrive gli esiti osservati in quei momenti, non lo stato del deploy `79b3bcb`.
+## Prove automatiche
 
-Una richiesta bibliografica reale con ISBN `9780156453806` ha restituito il volume corretto tramite Open Library mentre Google Books rispondeva HTTP 429. Questo prova il fallback per quella richiesta, non la copertura dell’intero catalogo italiano.
+Eseguire `npm run typecheck`, `npm test`, `npm run build`, `npm run build:standalone` e l’audit delle dipendenze di produzione. La build Sites e quella Node sono separate e usano la stessa implementazione API.
 
-La pausa del provider dopo HTTP 429/503 è verificata con test a tempo controllato: durante il periodo previsto le richieste successive evitano quel catalogo e possono utilizzare l’altro; alla scadenza una nuova richiesta riprova. Il valore predefinito è 30 secondi, con `Retry-After` valido limitato a 60 secondi. Questa verifica automatica è distinta dalla singola prova bibliografica reale.
+Le prove HTTP mantengono una connessione reale al server Node per verificare progressione dei libri, ammissione delle richieste, disconnessione, timeout e conservazione dei risultati parziali. I test del nuovo archivio eseguono SQL su SQLite reale, simulando solo il servizio oggetti R2. Gli errori pubblici devono essere privi di chiavi e dati grezzi del provider.
 
-## Prova operativa del riconoscimento
+## Prova bibliografica del 11 ottobre 2026
 
-Osservazione diretta dal browser il **10 ottobre 2026**, dopo che Render ha indicato il deploy come **Live**:
+Con un’osservazione sintetica contenente ISBN 9780156453806, titolo Invisible Cities e autore Italo Calvino, il servizio bibliografico ha trovato una corrispondenza coerente su Open Library (`OL16827152M`) in circa 8,3 secondi, mentre Google Books rispondeva HTTP 429. La prova riguarda il recupero dei metadati e il fallback: non coinvolge Gemini né misura la lettura fotografica.
 
-| Elemento | Evidenza |
-| --- | --- |
-| App | [https://jemiq-wt9a.onrender.com/](https://jemiq-wt9a.onrender.com/) |
-| Commit | [`79b3bcb8c77bb287840cc842ebae8a7eb32e392a`](https://github.com/emilioquattrini/jemiq/commit/79b3bcb8c77bb287840cc842ebae8a7eb32e392a) |
-| Deploy Render | [`dep-db52a8jbc2fs73e2jmkg`](https://dashboard.render.com/web/srv-db50r78473hc739faeqg/deploys/dep-db52a8jbc2fs73e2jmkg), Live |
-| Input | `book-test.png`, copertina sintetica 1200 × 1600 px; lo stesso file usato nelle prove prima rifiutate |
-| Modalità | Tavolo |
-| Provider | Richiesta Gemini reale dalla configurazione di produzione, senza risposta simulata |
-| Stato finale della UI | «Risultati disponibili» |
-| Durata indicata dalla UI | 12 s per questa prova |
-| Risultato | Una riga: **PRIDE AND PREJUDICE / JANE AUSTEN** |
-| ISBN | Lasciato da verificare, riga «Da completare»; nell’immagine non è stampato alcun ISBN |
-| Controlli software del commit | 374 test in 14 file, TypeScript e build di produzione superati; [GitHub Actions](https://github.com/emilioquattrini/jemiq/actions/runs/38049423861) |
+## Verifica end-to-end
 
-Il commit compatta soltanto lo schema inviato per la generazione: rimuove vincoli di cardinalità, limiti numerici e `additionalProperties`, e rappresenta `boundingBox` come array nullable al posto di `anyOf`. La validazione Zod conserva i controlli sui campi extra, sul numero di osservazioni, sulle stringhe e sulle coordinate. Il risultato dimostra che questa richiesta compatta è accettata nella configurazione operativa verificata. **Non identifica un singolo vincolo come causa del rifiuto**: le parole chiave rimosse risultano individualmente supportate nella [documentazione degli output strutturati](https://ai.google.dev/gemini-api/docs/generate-content/structured-output).
+Sul sito pubblicato eseguire una sola chiamata esplicita di controllo testo e una scansione con immagine nota. Verificare gli eventi NDJSON, il titolo/autore osservato, gli avvisi e l’assenza di ISBN inventato. Registrare separatamente che il materiale di prova è sintetico quando non deriva da una foto di un libro reale.
 
-Questa è una prova completa del collegamento e del percorso di riconoscimento su materiale sintetico. Non è un benchmark di accuratezza su fotografie di libri fisici, non identifica un’edizione e non verifica la generazione di ambientazioni Studio. I 12 secondi sono il valore mostrato per questa singola esecuzione, non una misura delle prestazioni abituali.
+Controllare anche un salvataggio con foto, il recupero della stessa foto, l’aggiornamento con revisione, il rifiuto di una revisione obsoleta, la separazione dei proprietari e l’eliminazione del catalogo di prova. Rimuovere i dati di collaudo creati appositamente e disattivare l’eventuale accesso tecnico temporaneo.
 
-## Verifiche eseguite il 10 ottobre 2026
+## Limiti del collaudo
 
-| Verifica | Esito |
-| --- | --- |
-| Suite automatica estesa | 374 test superati in 14 file, inclusi catalogo, Studio e regressioni sui contratti REST e sui parametri dei modelli |
-| TypeScript e build di produzione | Superati su Node 24 |
-| Catalogo, Gemini reale in produzione | Commit `79b3bcb`: copertina sintetica riconosciuta, una riga titolo/autore, «Risultati disponibili», 12 s indicati dalla UI |
-| Audit delle dipendenze di produzione | Nessuna vulnerabilità nota segnalata da `npm audit --omit=dev --audit-level=high` |
-| Catalogo, browser desktop | Chromium 153, viewport 1440 px; avvio del bundle di produzione con CSP attiva |
-| Catalogo, browser mobile emulato | Viewport 390 e 320 px; tabella, editor e conferma senza overflow orizzontale |
-| Conferma edizione | Un candidato della demo diventa confermato solo dopo la scelta esplicita |
-| Download | XLSX e CSV scaricati dal browser; XLSX riaperto e ISBN verificato come testo |
-| Cronologia | Nome, quantità ed edizione confermata ritrovati dopo la ricarica |
-| Inserimento manuale | ISBN invalido bloccato, conferma richiesta per un codice valido, annullamento senza righe vuote |
-| Immagine di collaudo | PNG caricato, convertito in JPEG e ruotato di 90 gradi |
-| Rete assente nella ricerca | Errore in italiano e catalogo conservato |
-| Stream interrotto simulato | Riga ricevuta e avviso di interruzione conservati anche dopo la ricarica |
-| Studio, HTTP e job | Sessione firmata, accesso/origine, isolamento browser, idempotenza, conflitto 409, polling, cancellazione e limiti verificati con provider simulato |
-| Studio, proposta testuale | Scheda scelta riletta dal server, identità e riscontri delle fonti controllati, fallback esplicito e nessun retry automatico |
-| Studio, grafica in Chromium | Conservazione di pixel e alpha nel percorso PNG su fixture, ritaglio prospettico ed export JPEG 1080 × 1350 / 1080 × 1920 verificati |
-| Studio, persistenza | Progetti salvati in IndexedDB; bozze con testo temporaneamente vuoto conservate, generazione bloccata finché la proposta non è valida |
-| Studio, UI desktop | Chromium 153.0.8010.0, 1440 × 1050; flusso completo con provider simulato, CSP attiva, font locali e nessun errore JavaScript |
-| Studio, UI mobile emulata | 390 × 844 e 320 × 740, senza overflow nei tre passaggi; controlli touch di almeno 48 px e download JPEG Post/Storia verificati |
+L’ambiente corrente non dispone della capacità browser richiesta da Sites per il collaudo visivo: la nuova distribuzione non è stata verificata con una fotocamera fisica o tramite interazione browser automatizzata. I test unitari, HTTP e di build non sostituiscono una prova sul dispositivo dell’utente.
 
-Le [schermate Studio](screenshots/jemiq-studio-start-desktop.png) mostrano l’app in esecuzione con copertina sintetica e ambientazione di collaudo, contrassegnate come tali: [ritaglio](screenshots/jemiq-studio-crop-desktop.png), [proposta](screenshots/jemiq-studio-brief-desktop.png), [risultato desktop](screenshots/jemiq-studio-result-desktop.png) e [mobile](screenshots/jemiq-studio-result-mobile.png). Non sono generazioni Gemini reali. Anche le schermate iniziali e della demo del catalogo, nella stessa cartella, sono state rigenerate con il nuovo marchio durante questo collaudo; i dati dimostrativi non provano il riconoscimento su fotografie reali.
-
-Il collaudo UI Studio ha completato sette gruppi di prove, senza chiamate reali ai provider:
-
-1. Bundle di produzione, CSP, font locali, accesso e passaggio Catalogo → Studio.
-2. Ritaglio con controlli da tastiera e preparazione della proposta.
-3. Bozza con campo vuoto conservata dopo ricarica, doppio clic con un solo POST, nessuna immagine nel POST di generazione e download JPEG nelle due dimensioni previste.
-4. Modifica di un progetto completato con nuova bozza e originale conservato; gestione della ricerca lenta.
-5. Risposta al POST persa e recupero soltanto con GET.
-6. Ricarica durante un job in esecuzione, recupero soltanto con GET e cancellazione.
-7. Flusso mobile, dimensioni dei controlli, assenza di overflow e download nei due formati.
-
-Restano da verificare nell’ambiente operativo: l’accuratezza del riconoscimento su fotografie di libri fisici, la generazione Studio con credenziali reali, fotocamera fisica e formati HEIC sui dispositivi, Safari e Android reali e build Docker. Il riconoscimento su copertina sintetica è riuscito come documentato sopra. La versione comprensiva di Studio è stata distribuita su Render; questo non certifica il successo delle sue generazioni.
-
-## Storico: correzione del contratto REST Gemini
-
-La prima scansione reale ha mostrato un errore di richiesta rifiutata. È stato individuato un difetto concreto nel payload: `generationConfig.responseFormat.text.mimeType` conteneva `application/json`, mentre il riferimento REST e il discovery ufficiale richiedono l'enum `APPLICATION_JSON`.
-
-Il valore era stato corretto e il contratto confrontato con un estratto del discovery Google, revisione `20261008`. I MIME dell'immagine (`image/jpeg`, `image/png`, `image/webp`) restano stringhe IANA: il requisito dell'enum riguarda esclusivamente `responseFormat.text.mimeType`. In quel passaggio lo schema bibliografico e i controlli ISBN non erano coinvolti. Successivamente il riconoscimento è passato alla coppia `responseMimeType` / `responseJsonSchema`, come descritto sotto.
-
-Il precedente test del payload si aspettava lo stesso valore errato dell'implementazione e non intercettava il difetto. La regressione introdotta allora usava un riferimento indipendente. Durante questa prima correzione non erano state eseguite chiamate Gemini con credenziali reali; il collaudo operativo era quindi ancora da svolgere. Le prove successive, compreso l’esito riuscito su `79b3bcb`, sono riportate in questo documento.
-
-Fonti: [riferimento TextResponseFormat](https://ai.google.dev/api/generate-content#TextResponseFormat), [discovery REST v1beta](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta).
-
-## Storico: correzione dei parametri del modello dopo il secondo rifiuto
-
-La richiesta conteneva ancora `generationConfig.candidateCount: 1`. La guida specifica di Gemini 3.8, aggiornata il 9 ottobre 2026, richiede di omettere `candidate_count` per Gemini 3 e successivi. Il discovery generale continua a elencare il campo perché descrive anche modelli precedenti: il controllo del solo enum JSON non intercettava questa incompatibilità.
-
-In quel passaggio è stato rimosso `candidateCount`, mantenendo il modello `gemini-3.8-flash`, l'enum REST `APPLICATION_JSON` e lo schema bibliografico allora in uso. Non sono stati aggiunti tentativi automatici o chiamate a modelli alternativi.
-
-La nuova regressione usa una fixture ricavata dalle restrizioni documentate del modello e un trasporto simulato che rifiuta i campi non supportati con HTTP 400. Eseguita prima della correzione, fallisce con lo stesso messaggio generico mostrato dall’app; dopo la rimozione del parametro passa. La regressione è mantenuta nella suite estesa di 374 test, con TypeScript e build superati. Anche le richieste Studio omettono `candidateCount`: il servizio testuale usa l’enum `APPLICATION_JSON`, il generatore immagini gli enum del proprio formato REST.
-
-Questa regressione dimostrava la rimozione di un difetto documentato del payload, non il successo di una scansione Gemini reale. Non erano state utilizzate credenziali operative durante quella correzione e il corpo dell’errore di produzione non era ancora disponibile. La diagnostica e i collaudi operativi successivi hanno documentato separatamente i rifiuti persistenti, il collegamento testuale riuscito e infine il riconoscimento riuscito su `79b3bcb`.
-
-Fonti: [Gemini 3.8 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/latest-model), [Gemini 3.6 — Migration checklist](https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.6).
-
-## Diagnostica dei rifiuti del provider
-
-Il server registra `Jemiq Gemini rejection:` seguito da HTTP status, status RPC, motivi noti, categorie fisse, nomi di campi ammessi e brevi messaggi diagnostici ripuliti. I messaggi sono limitati a quattro estratti di 600 caratteri: chiave configurata, immagine, prompt, valori tra virgolette, URL e lunghe sequenze codificate vengono rimossi. Il corpo originale e gli oggetti con metadati dell’account vengono scartati. Anche i dettagli `BadRequest.fieldViolations` vengono esaminati per individuare il parametro rifiutato. Il corpo di errore viene letto entro 16 KiB e 1,5 secondi; una diagnostica non disponibile o un errore del logger non sostituiscono la classificazione HTTP originale.
-
-Google documenta anche `400 / INVALID_ARGUMENT / API_KEY_INVALID`, quindi il solo HTTP 400 non dimostra un difetto del payload. Fonte: [GenerateContent API errors](https://ai.google.dev/gemini-api/docs/generate-content/api-errors).
-
-## Storico: compatibilità del formato JSON con il servizio operativo
-
-Le scansioni reali sui commit `64f90a1`, `f8b93c1` e `77f1d55` hanno riprodotto il rifiuto anche dopo la rimozione di `candidateCount`. Il log completo ripulito del 10 ottobre non contiene dettagli di campo, quote o credenziali: soltanto `400 / INVALID_ARGUMENT` e `Request contains an invalid argument.`. In Render non è definito un override `GEMINI_MODEL`, quindi il server usa il valore predefinito `gemini-3.8-flash`. Nessuna credenziale è stata letta o modificata.
-
-Per isolare la rappresentazione della richiesta, il riconoscimento ha sostituito `responseFormat.text` con `responseMimeType: application/json` e `responseJsonSchema`. Questi sono i nomi emessi dal convertitore `generateContentConfigToMldev` dell’SDK ufficiale JS; `tJsonSchema` lascia lo schema invariato. In quel passaggio foto, modello, prompt, limite di token, schema e validazione Zod erano rimasti gli stessi. Anche il successivo collaudo del commit `3c78d3b` aveva riprodotto il rifiuto. Si esegue sempre una sola richiesta di riconoscimento, senza tentativi automatici.
-
-La regressione simula il rifiuto della vecchia rappresentazione e controlla la coppia documentata, inclusi i tipi nullable. Fallisce prima della sostituzione e passa dopo. Come gli altri test con provider simulato, non dimostra da sola che Gemini accetti la richiesta operativa.
-
-Fonti: [GenerateContentConfig SDK](https://googleapis.github.io/js-genai/release_docs/interfaces/types.GenerateContentConfig.html), [convertitore ufficiale](https://github.com/googleapis/js-genai/blob/main/src/converters/_models_converters.ts), [trasformazioni dello schema](https://github.com/googleapis/js-genai/blob/main/src/_transformers.ts).
-
-## Verifica esplicita del collegamento a Gemini
-
-Da **Come funziona → Verifica connessione AI** il browser invia un POST autenticato con corpo vuoto a `/api/vision/check`. Il server costruisce una sola richiesta con il testo fisso `Reply with OK.` e un limite di 256 token. Non riceve prompt o modelli dal client e non invia foto o schemi. L’apertura della pagina e `/api/health` non generano richieste Gemini.
-
-Il controllo condivide protezione di origine e codice di accesso, ha limiti per client e globali, consente una verifica alla volta e termina entro 35 secondi al confine HTTP. Una risposta valida attesta soltanto il collegamento testuale: il riconoscimento fotografico richiede una propria prova operativa. I rifiuti sono registrati nel log ripulito `Jemiq Gemini text check:`.
-
-La verifica testuale operativa sul commit `33e95af` è riuscita: l’app ha ricevuto `{ ready: true }` dal controllo collegato a Gemini. Questo aveva confermato il collegamento testuale con la configurazione in uso, lasciando ancora da provare il riconoscimento. Il commit `79b3bcb` ha poi compattato lo schema di generazione, conservando i controlli Zod, e ha completato la [prova operativa sulla copertina sintetica](#prova-operativa-del-riconoscimento).
-
-## Studio: evidenze e confini delle prove
-
-I test dei servizi Studio usano risposte simulate. Verificano che una stessa richiesta non avvii una seconda generazione, che un brief differente con la stessa UUID venga rifiutato, che altri browser non possano leggere o annullare il job e che perdita di connessione, timeout, quota e risposta malformata non producano un’immagine di successo fittizia. Il recupero utilizza GET; la scelta di generare una nuova immagine resta esplicita.
-
-Il contesto bibliografico viene recuperato con endpoint fissi, controllando la scheda e l’identità del libro. Sinossi e categorie inviate dal client non sono accettate come fonti. I dati Open Library provengono dalla singola edizione. La proposta distingue origine `catalog`, `reader` e `style`; i riscontri testuali riducono le attribuzioni arbitrarie, ma non provano automaticamente l’assenza di spoiler o la pertinenza di ogni oggetto.
-
-Le prove grafiche in Chromium usano immagini di collaudo, senza chiamare il generatore. Coprono il ritaglio a quattro punti, la trasformazione prospettica e il percorso PNG che mantiene la grafica della copertina e la trasparenza. La composizione finale è deterministica nel browser. I JPEG scaricabili hanno dimensioni 1080 × 1350 e 1080 × 1920; il ricampionamento e la compressione JPEG non conservano l’identità binaria dei pixel originali. Il modello genera soltanto l’ambientazione e non riceve la foto da sovrapporre.
-
-La nuova identità visiva usa i [token del brand](brand/design-tokens.json), le [variabili CSS](../src/design-tokens.css), il logo originale e Noto Sans distribuito localmente con [licenza OFL](../public/fonts/OFL.txt). Il caricamento dei font locali e il layout desktop/mobile sono verificati in Chromium. La verifica del browser non sostituisce un controllo di accessibilità con tecnologie assistive e dispositivi reali.
-
-### Protocollo UI Studio
-
-1. Aprire Studio direttamente e dalla scheda di un libro. Caricare una foto, allineare gli angoli, controllare il ritaglio e verificare titolo/autore.
-2. Preparare una proposta con una scheda disponibile e una senza metadati: nel secondo caso non devono comparire dettagli di trama attribuiti al catalogo. Modificare mood, elementi e palette.
-3. Svuotare temporaneamente un campo del brief, cambiare progetto e riaprirlo: la bozza deve sopravvivere; l’invio al generatore deve restare bloccato finché i campi necessari non sono completati.
-4. Verificare che l’identificativo sia salvato prima del POST. Simulare la perdita dell’acknowledgement, ricaricare e riaprire il progetto: soltanto GET di recupero, senza un secondo POST di generazione.
-5. Simulare errore o cancellazione: nessuno sfondo fittizio, foto e bozza conservate. Una risposta tardiva di un altro progetto non deve essere applicata al libro corrente.
-6. Su un progetto completato modificare libro, ISBN, stile o proposta: creare una nuova bozza, mantenendo coerenti immagine e dati dell’originale in cronologia. Una correzione dell’ISBN deve invalidare la vecchia provenienza.
-7. Alternare Post e Storia e regolare scala/rotazione: controllo visivo di copertina, ombre e margini; nessuna chiamata aggiuntiva al generatore. Scaricare entrambi i JPEG e verificarne dimensioni e leggibilità.
-8. Aprire due sessioni browser con lo stesso codice di accesso: un job deve essere recuperabile soltanto dalla sessione proprietaria. Verificare il messaggio di sessione scaduta dopo un riavvio.
-9. Controllare che una ricerca lenta non permetta operazioni incompatibili e che annullamento o cambio progetto liberino i controlli. Verificare che salvataggio fallito prima dell’invio non avvii una generazione.
-10. Impostare `STUDIO_ENABLED=false`, riavviare e verificare `studioReady: false` e blocco delle nuove generazioni. La configurazione non deve cancellare i progetti nel browser.
-
-### Campione reale per Studio
-
-Usare pochi libri di generi diversi, con copertine chiare/scure, titoli piccoli e fotografie inclinate. Per ogni generazione registrare modello, durata, errore eventuale e costo effettivo nel progetto Google. Controllare che scena e oggetti rispecchino la proposta, che non anticipino rivelazioni indesiderate e che titolo e grafica della copertina restino quelli fotografati. Valutare separatamente resa della fotografia, pertinenza della proposta e qualità dello sfondo.
-
-Le prove di 429, scadenza e duplicazione vanno eseguite con i provider simulati della suite; non occorre consumare generazioni reali per raggiungere i limiti. Una verifica `/api/health` positiva indica configurazione presente, non credenziali verificate o costo nullo.
-
-## Verifica funzionale
-
-1. Senza chiave: stato da configurare. Demo solo tramite il comando esplicito.
-2. Modificare un libro della demo, confermare un’edizione, esportare XLSX/CSV. Controllare il marcatore di esempio e gli ISBN come testo nel file XLSX.
-3. Creare un elenco manuale, rinominarlo, modificare quantità, ricaricare e riaprirlo dalla cronologia.
-4. Configurare Gemini e fotografare cinque libri. I risultati devono apparire progressivamente.
-5. Annullare durante l’arricchimento: righe ricevute conservate, stato di lavoro incompleto.
-6. Interrompere la rete o simulare 429/503: errore utile e dati conservati, mai sostituiti con la demo. Verificare che la pausa riguardi soltanto il provider che ha fallito. Se entrambi i cataloghi sono indisponibili, la ricerca manuale deve mostrare un errore temporaneo, mentre la scansione deve conservare le osservazioni con le relative note.
-7. Correggere titolo o ISBN: la vecchia verifica non deve sopravvivere alla correzione.
-8. Due copie dello stesso libro: segnalazione di possibile duplicato, senza accorpamento o inferenza di copie nascoste.
-
-## Campione reale
-
-Preparare almeno 20 fotografie con un elenco di riferimento compilato leggendo i libri fisici. Usare materiale del proprio negozio e mantenere le foto nel gruppo di lavoro.
-
-| Gruppo | Casi |
-| --- | --- |
-| Tavoli | Copertine dritte, inclinate, parzialmente sovrapposte |
-| Scaffali | Dorsi verticali e orizzontali, caratteri piccoli, sezioni affollate |
-| Luce | Buona illuminazione, riflessi e ombra |
-| Edizioni | Stessa opera in tascabile/cartonato, traduzioni, editori diversi |
-| Catalogo | Titoli noti, piccoli editori italiani, fuori catalogo, senza ISBN |
-| Negativi | Foto senza libri e libri interamente illeggibili |
-
-Registrare per foto: modello, dimensioni immagine, durata, libri visibili e rilevati, titoli corretti, ISBN corretti e sbagliati, record lasciati correttamente da verificare e costo riportato dal provider.
-
-Non misurare soltanto quanti libri sono riconosciuti: un ISBN errato dichiarato riscontrato è più dannoso di un titolo lasciato da verificare. Non fissare percentuali di affidabilità prima del collaudo.
-
-## Dispositivi
-
-Provare fotocamera e caricamento su Safari iPhone, Chrome Android, Safari macOS e Chrome/Edge desktop. Verificare HEIC su dispositivo compatibile, rotazione EXIF, tastiera virtuale, download e ripristino delle sessioni. L’emulazione di un viewport mobile non prova l’accesso alla fotocamera fisica.
-
-## Hosting
-
-Controllare HTTPS, `APP_ORIGIN`, proxy fidati, codice di accesso di almeno 16 caratteri, chiavi solo sul server e quote dei provider. Usare una singola istanza finché i limiti, le sessioni e i job non sono condivisi. Verificare che il proxy non bufferizzi `application/x-ndjson` e consenta richieste di tre minuti.
-
-Per Studio provare polling, scadenza dei risultati e riavvio con un job simulato in corso. In produzione il processo conserva al massimo 4 sfondi e circa 32 MiB di stringhe, per non più di 30 minuti; le registrazioni leggere delle richieste durano fino a 24 ore. Il riavvio perde memoria e firma dei cookie. Il progetto locale sopravvive, ma un risultato non ancora ricevuto può andare perso. I limiti in memoria non costituiscono un tetto di spesa persistente.
-
-Il modello immagini predefinito è `gemini-nano-banana-2.1`: usa `GEMINI_IMAGE_API_KEY` se presente, altrimenti `GEMINI_API_KEY`. Proposta testuale e riconoscimento usano la chiave e il modello già configurati. Verificare separatamente i permessi dei due modelli. Per applicare il codice usare **Manual Deploy → Deploy latest commit** come descritto in [Render](RENDER.md); un commit su GitHub non aggiorna il servizio quando l’auto-deploy è disabilitato.
-
-Pubblicazione e collegamento delle credenziali reali sono passaggi distinti dalla consegna del codice in GitHub.
+Prima di un impiego operativo esteso, usare un campione controllato di tavoli e scaffali reali, con ISBN noti, riprese inclinate, luce variabile e libri parzialmente coperti. Misurare separatamente libri rilevati, titolo/autore corretti, corrispondenze di edizione ed errori che l’utente deve correggere. Non dichiarare una percentuale di accuratezza senza questo campione.

@@ -5,6 +5,11 @@ import { summarizeVisionRejection, type VisionDiagnostic } from './vision-diagno
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_OBSERVATIONS = 40;
+const MAX_AUTHORS = 8;
+const MAX_PROVIDER_WARNINGS = 12;
+// Bound parsing independently of the smaller public result. Extra valid books are
+// explicitly capped; a malformed row must not discard other physical copies.
+const MAX_RESPONSE_OBSERVATIONS = 200;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 90_000;
@@ -36,7 +41,7 @@ const boxSchema = z.tuple([coordinate, coordinate, coordinate, coordinate])
 
 const observationSchema = z.object({
   title: shortText(300).nullable(),
-  authors: z.array(shortText(160)).max(8),
+  authors: z.array(shortText(160)).max(MAX_AUTHORS),
   // Keep OCR text as observed. ISBN checksum/edition verification belongs to the catalogue service.
   visibleIsbn: shortText(32).regex(/^[\dXx -]+$/).nullable(),
   publisher: shortText(180).nullable(),
@@ -48,8 +53,8 @@ const observationSchema = z.object({
 }).strict();
 
 const recognitionSchema = z.object({
-  observations: z.array(observationSchema).max(MAX_OBSERVATIONS),
-  warnings: z.array(shortText(350)).max(12),
+  observations: z.array(z.unknown()).max(MAX_RESPONSE_OBSERVATIONS),
+  warnings: z.array(z.unknown()).max(100),
 }).strict();
 
 // Keep the generation schema compact. Runtime Zod validation enforces object strictness,
@@ -62,13 +67,13 @@ const responseSchema = {
   properties: {
     observations: {
       type: 'array',
-      description: 'One entry for each separate physical book with readable text. Preserve separate copies.',
+      description: `At most ${MAX_OBSERVATIONS} entries, one for each separate physical book with readable text. Preserve separate copies.`,
       items: {
         type: 'object',
         required: ['title', 'authors', 'visibleIsbn', 'publisher', 'language', 'evidence', 'position', 'confidence', 'boundingBox'],
         properties: {
           title: { type: ['string', 'null'], description: 'Only the visible title text, at most 300 characters. Null if unreadable.' },
-          authors: { type: 'array', items: { type: 'string' }, description: 'Only printed, readable author names, at most 160 characters each; [] if absent.' },
+          authors: { type: 'array', items: { type: 'string' }, description: `At most ${MAX_AUTHORS} printed, readable author names, at most 160 characters each; [] if absent. If more names are visible, keep the first ${MAX_AUTHORS} and mention the omission in warnings.` },
           visibleIsbn: { type: ['string', 'null'], description: 'Digits of an ISBN actually readable in the image, with optional spaces/hyphens; at most 32 characters. Never infer from a title or cover.' },
           publisher: { type: ['string', 'null'], description: 'Publisher text actually readable on this book, at most 180 characters.' },
           language: { type: ['string', 'null'], description: 'Language of the visible text, or null when unclear; at most 80 characters.' },
@@ -77,14 +82,14 @@ const responseSchema = {
           confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Legibility only: high = clearly readable; medium = partly obscured; low = fragments. Not an accuracy probability or an edition match.' },
           boundingBox: {
             type: ['array', 'null'], items: { type: 'number' },
-            description: '[ymin,xmin,ymax,xmax] relative to the whole image, normalized to 0..1000, ymin < ymax and xmin < xmax. Null if uncertain.',
+            description: 'Exactly four numbers [ymin,xmin,ymax,xmax] relative to the whole image, normalized to 0..1000, ymin < ymax and xmin < xmax. Null if uncertain.',
           },
         },
       },
     },
     warnings: {
       type: 'array', items: { type: 'string' },
-      description: 'Concise actionable Italian warnings, at most 350 characters each: blur, glare, skew, occlusion, unreadable books, or reaching the 40-book limit. [] when no specific warning is warranted.',
+      description: `At most ${MAX_PROVIDER_WARNINGS} concise actionable Italian warnings, at most 350 characters each: blur, glare, skew, occlusion, unreadable books, or reaching the ${MAX_OBSERVATIONS}-book limit. Combine repeated issues. [] when no specific warning is warranted.`,
     },
   },
 } as const;
@@ -96,6 +101,7 @@ An ISBN may be supplied ONLY when its printed digits are directly readable in th
 Scan the full photograph systematically, row by row and left to right. Return one observation per separate physical book with at least part of its title, author or printed ISBN readable. Two visible copies of the same book remain TWO observations with their own positions and boxes. Never infer copies behind other books, the depth of a stack, hidden pages, or hidden spines. Do not count an illustration of a book as a separate physical volume.
 For unreadable or obscured books, explain the limitation in warnings instead of inventing records. For partial text, preserve just the readable fragment and use medium or low legibility. confidence describes legibility, not a statistical probability and never confirms an edition.
 Use at most ${MAX_OBSERVATIONS} observations. If there are more, return the first ${MAX_OBSERVATIONS} in reading order and explicitly warn in Italian that the image should be split into smaller sections. Do not silently claim completeness.
+Each observation has at most ${MAX_AUTHORS} authors. Use at most ${MAX_PROVIDER_WARNINGS} warnings, combining related issues; each warning is at most 350 characters. Respect every field's length limit. Use null for an uncertain bounding box; otherwise return exactly four ordered coordinates.
 When justified by what you see, warn in Italian about blur, glare, excessive angle, tiny text, occlusion or cropped books and suggest a closer, straighter or better-lit photo. With no readable books, return observations: [] and a useful warning.
 Titles, names and evidence remain in the original printed language. Positions and warnings are in Italian. Bounding boxes refer to the whole image in [ymin,xmin,ymax,xmax] coordinates on a 0..1000 scale; use null if a reliable box cannot be located.
 Return only the JSON object matching the schema, with every required field. No markdown, no commentary, no numerical confidence, no source URLs and no catalogue metadata.`;
@@ -220,14 +226,34 @@ function parseRecognition(raw: unknown): { observations: Observation[]; warnings
   try { parsed = JSON.parse(text); } catch { throw invalidResponse(); }
   const result = recognitionSchema.safeParse(parsed);
   if (!result.success) throw invalidResponse();
-  const warnings = [...new Set(result.data.warnings)];
-  if (result.data.observations.length === MAX_OBSERVATIONS) {
+  const observations: Observation[] = [];
+  const invalidPositions: number[] = [];
+  let validCount = 0;
+  for (const [index, value] of result.data.observations.entries()) {
+    const observation = observationSchema.safeParse(value);
+    if (!observation.success) { invalidPositions.push(index + 1); continue; }
+    validCount++;
+    if (observations.length < MAX_OBSERVATIONS) observations.push(observation.data);
+  }
+  // Never turn a wholly invalid model result into a successful zero-book scan.
+  if (result.data.observations.length && !observations.length) throw invalidResponse();
+  const warningResults = result.data.warnings.map((value) => shortText(350).safeParse(value));
+  const validWarnings = [...new Set(warningResults.flatMap((warning) => warning.success ? [warning.data] : []))];
+  const warnings = validWarnings.slice(0, MAX_PROVIDER_WARNINGS);
+  if (invalidPositions.length) {
+    const positions = invalidPositions.slice(0, 6).join(', ') + (invalidPositions.length > 6 ? ', …' : '');
+    warnings.push(`Escluse ${invalidPositions.length} letture con dati incompleti o non validi (elementi ${positions} nell’ordine di lettura). Gli altri libri sono conservati. Controlla la foto e aggiungi quelli mancanti oppure ripeti una foto più vicina.`);
+  }
+  if (validCount >= MAX_OBSERVATIONS) {
     warnings.push(`Raggiunto il limite di ${MAX_OBSERVATIONS} libri per foto: potrebbero esserci altri volumi. Dividi la foto in sezioni per controllarli tutti.`);
   }
-  if (!result.data.observations.length && !warnings.length) {
+  if (warningResults.some((warning) => !warning.success) || validWarnings.length > MAX_PROVIDER_WARNINGS) {
+    warnings.push('Alcuni avvisi del servizio erano incompleti o superavano il limite e sono stati esclusi. Controlla che tutti i libri leggibili siano presenti.');
+  }
+  if (!observations.length && !warnings.length) {
     warnings.push('Nessun testo di libro leggibile. Avvicinati, migliora la luce e inquadra le copertine o i dorsi per intero.');
   }
-  return { observations: result.data.observations, warnings };
+  return { observations, warnings };
 }
 
 export interface VisionOptions {
@@ -295,8 +321,14 @@ export function createVisionService(options: VisionOptions) {
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
             body,
             signal: controller.signal,
-            redirect: 'error',
+            // Workers supports manual/follow only. Never forward the API key or
+            // image to a redirect destination, even on 307/308 responses.
+            redirect: 'manual',
           });
+          if (response.status >= 300 && response.status < 400) {
+            void response.body?.cancel().catch(() => undefined);
+            throw upstreamError(response);
+          }
           if (!response.ok) {
             if (options.onDiagnostic) {
               let rejection: unknown;
@@ -304,7 +336,7 @@ export function createVisionService(options: VisionOptions) {
                 rejection = await readBoundedJson(response,
                   AbortSignal.any([controller.signal, AbortSignal.timeout(1500)]), 16 * 1024);
               } catch { /* Preserve the HTTP error even when its diagnostic body is unusable. */ }
-              try { options.onDiagnostic(summarizeVisionRejection(response.status, rejection, [apiKey, image.data, SYSTEM_PROMPT])); }
+              try { options.onDiagnostic(summarizeVisionRejection(response.status, rejection)); }
               catch { /* Logging must not alter the request result. */ }
             } else {
               void response.body?.cancel().catch(() => undefined);

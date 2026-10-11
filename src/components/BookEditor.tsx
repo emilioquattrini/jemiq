@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { AlertCircle, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, ImagePlus, LoaderCircle, Search, X } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, LoaderCircle, Search, X } from 'lucide-react';
 import type { BookRecord, CatalogCandidate } from '../../shared/types';
 import { isValidIsbn, toIsbn13 } from '../../shared/isbn';
 import { searchCatalog } from '../lib/api';
@@ -11,7 +11,8 @@ interface BookEditorProps {
   onSave: (book: BookRecord) => void;
   onDelete: (id: string) => void;
   onAccessRequired: () => void;
-  onCreateImage?: () => void;
+  authMode?: 'platform' | 'token';
+  onRequestAccess?: () => void;
   onClose: () => void;
 }
 
@@ -19,7 +20,7 @@ function editionDetails(candidate: CatalogCandidate): string {
   return [candidate.publisher, candidate.publishedDate, candidate.language?.toUpperCase()].filter(Boolean).join(' · ') || 'Altri dati non disponibili';
 }
 
-export default function BookEditor({ book, onSave, onDelete, onAccessRequired, onCreateImage, onClose }: BookEditorProps) {
+export default function BookEditor({ book, onSave, onDelete, onAccessRequired, authMode = 'token', onRequestAccess, onClose }: BookEditorProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const errorNotice = useRef<HTMLDivElement>(null);
   const searchController = useRef<AbortController | null>(null);
@@ -127,7 +128,6 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, o
           <div className="editor-cover"><BookOpen size={26} strokeWidth={1.4} /></div>
           <div><h3>{book.title || 'Nuovo libro'}</h3><p>{book.authors.join(', ') || 'Autore da completare'}</p></div>
         </div>
-        {onCreateImage && book.title.trim() && <div className="editor-studio-action"><button className="button secondary" type="button" onClick={onCreateImage}><ImagePlus size={20}/>Crea immagine</button><span>Apri questo libro in Studio.</span></div>}
 
         <div className="editor-tabs" role="tablist" aria-label="Dettagli del libro" onKeyDown={(event) => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -174,7 +174,7 @@ export default function BookEditor({ book, onSave, onDelete, onAccessRequired, o
                 <button className="button secondary" type="submit" disabled={searching || query.trim().length < 2}>{searching ? <LoaderCircle className="spin" size={18} /> : 'Cerca'}</button>
               </form>
               {searchError && <div className="inline-alert error" role="alert"><AlertCircle size={17} /><span>{searchError}</span></div>}
-              {accessRequired && <button className="button secondary" type="button" onClick={onClose}>Torna al catalogo per inserire il codice</button>}
+              {accessRequired && <div className="editor-access-notice">{authMode === 'platform' && <p>La sessione è scaduta. Ricarica Jemiq per accedere di nuovo.</p>}<button className="button secondary" type="button" onClick={authMode === 'platform' ? () => window.location.reload() : onRequestAccess || onClose}>{authMode === 'platform' ? 'Ricarica Jemiq' : onRequestAccess ? 'Inserisci codice' : 'Torna al catalogo per inserire il codice'}</button></div>}
               {searching && <p className="search-status" role="status">Ricerca nei cataloghi bibliografici…</p>}
               {!searching && candidates.length === 0 && <div className="editions-empty"><Search size={29} strokeWidth={1.5} /><h3>{searched ? 'Nessuna edizione trovata' : 'Trova la tua edizione'}</h3><p>{searched ? 'Prova con il titolo completo o con l’ISBN stampato sul retro.' : 'Cerca per titolo, autore o ISBN. Puoi anche compilare i dati a mano.'}</p><button className="button text-button" type="button" onClick={() => setTab('details')}>Inserisci i dati manualmente</button></div>}
               {candidates.length > 0 && <div className="candidate-list" aria-busy={searching}>

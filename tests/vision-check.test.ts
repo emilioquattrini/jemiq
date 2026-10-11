@@ -26,7 +26,7 @@ describe('vision service check', () => {
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');
     expect(String(url)).not.toContain('private-test-key');
-    expect(request).toMatchObject({ method: 'POST', redirect: 'error', headers: {
+    expect(request).toMatchObject({ method: 'POST', redirect: 'manual', headers: {
       'Content-Type': 'application/json', 'x-goog-api-key': 'private-test-key',
     } });
     expect(JSON.parse(String(request?.body))).toEqual({
@@ -34,6 +34,21 @@ describe('vision service check', () => {
       generationConfig: { maxOutputTokens: 256 },
     });
     expect(request?.body).not.toContain('private-test-key');
+  });
+
+  it('rejects redirects without forwarding credentials, retrying or reading their bodies', async () => {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const cancel = vi.fn();
+      const onDiagnostic = vi.fn();
+      const response = new Response(new ReadableStream({ cancel }), { status, headers: { Location: 'https://untrusted.example/credential-sink' } });
+      const { service, fetchMock } = withResponse(response, { onDiagnostic });
+      await expect(service.check()).rejects.toMatchObject({ code: 'VISION_UNAVAILABLE', status: 503 });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0][1]?.redirect).toBe('manual');
+      expect(String(fetchMock.mock.calls[0][0])).not.toContain('untrusted.example');
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(onDiagnostic).not.toHaveBeenCalled();
+    }
   });
 
   it.each([

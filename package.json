@@ -1,29 +1,42 @@
 {
   "name": "jemiq",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Da una foto di libri a un catalogo verificabile, pronto per Excel.",
-  "engines": { "node": ">=22.12.0" },
+  "description": "Fotografa i libri, verifica le edizioni e conserva il tuo catalogo.",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
-    "dev": "node --import tsx server/index.ts",
-    "build": "npm run typecheck && vite build && node scripts/build-server.mjs",
+    "dev": "node scripts/run-framework.mjs dev",
+    "build": "npm run typecheck && node scripts/run-framework.mjs build",
     "start": "node scripts/start.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "dev:standalone": "node --import tsx server/index.ts",
+    "build:standalone": "npm run typecheck && vite build --config vite.client.config.ts && node scripts/build-server.mjs",
+    "db:generate": "drizzle-kit generate",
+    "install:ci": "node scripts/install-ci.mjs"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
     "exceljs": "4.4.0",
     "express": "5.3.0",
     "lucide-react": "1.55.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "zod": "4.6.5"
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "zod": "4.6.5",
+    "next": "16.4.0",
+    "drizzle-orm": "0.45.2"
   },
-  "overrides": { "exceljs": { "uuid": "11.1.1" } },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
+    "sharp": "0.35.5"
+  },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
@@ -35,6 +48,15 @@
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.4",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "4.20260515.1",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-kit": "0.31.10",
+    "json-rpc-2.0": "1.7.1",
+    "raw-body": "3.0.2",
+    "vinext": "1.0.0-beta.5",
+    "wrangler": "4.92.0",
+    "react-server-dom-webpack": "19.2.6"
   }
 }

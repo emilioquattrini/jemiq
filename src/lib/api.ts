@@ -26,9 +26,9 @@ async function responseError(response: Response): Promise<never> {
 }
 
 export async function getHealth(): Promise<HealthStatus> {
-  const response = await fetch('/api/health', { signal: AbortSignal.timeout(8000), cache: 'no-store' });
+  const response = await fetch('/api/health', { headers: headers(), signal: AbortSignal.timeout(8000), cache: 'no-store' });
   if (!response.ok) return responseError(response);
-  return z.object({ recognitionReady: z.boolean(), accessRequired: z.boolean(), studioReady: z.boolean().default(false) }).parse(await response.json());
+  return z.object({ recognitionReady: z.boolean(), accessRequired: z.boolean(), authMode: z.enum(['platform', 'token']).optional(), storageMode: z.enum(['cloud', 'local']).optional(), ownerId: z.string().optional(), settingsSupported: z.boolean().optional() }).parse(await response.json());
 }
 
 export async function checkVisionConnection(signal?: AbortSignal): Promise<{ ready: true }> {

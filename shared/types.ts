@@ -77,7 +77,14 @@ export type ScanEvent =
   | { type: 'done'; warnings: string[]; elapsedMs: number }
   | { type: 'error'; error: string; code: string };
 
-export interface HealthStatus { recognitionReady: boolean; accessRequired: boolean; studioReady?: boolean }
+export interface HealthStatus {
+  recognitionReady: boolean;
+  accessRequired: boolean;
+  authMode?: 'platform' | 'token';
+  storageMode?: 'cloud' | 'local';
+  ownerId?: string;
+  settingsSupported?: boolean;
+}
 export interface PreparedImage { dataUrl: string; data: string; mimeType: 'image/jpeg'; width: number; height: number }
 
 export const STATUS_LABELS: Record<BookStatus, string> = {

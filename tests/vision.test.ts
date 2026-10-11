@@ -43,13 +43,26 @@ describe('vision recognition contract', () => {
     expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');
     expect(String(url)).not.toContain('private-test-key');
     expect(request?.headers).toMatchObject({ 'x-goog-api-key': 'private-test-key' });
-    expect(request?.redirect).toBe('error');
+    expect(request?.redirect).toBe('manual');
     expect(request?.body).not.toContain('private-test-key');
     const body = JSON.parse(String(request?.body));
     expect(body.contents[0].parts[0].inlineData).toEqual(image);
     expect(body.generationConfig.responseJsonSchema.required).toEqual(['observations', 'warnings']);
     expect(body.tools).toBeUndefined();
     expect(body.systemInstruction.parts[0].text).toContain('UNTRUSTED DATA');
+  });
+
+  it('rejects redirects without forwarding the photo or API key to another endpoint', async () => {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const cancel = vi.fn();
+      const response = new Response(new ReadableStream({ cancel }), { status, headers: { Location: 'https://untrusted.example/photo-sink' } });
+      const { service, fetchMock } = withResponse(response);
+      await expect(service.recognize(image, 'shelf')).rejects.toMatchObject({ code: 'VISION_UNAVAILABLE', status: 503 });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0][1]?.redirect).toBe('manual');
+      expect(String(fetchMock.mock.calls[0][0])).not.toContain('untrusted.example');
+      expect(cancel).toHaveBeenCalledOnce();
+    }
   });
 
   it('serializes the JSON request using the official SDK field pair', async () => {
@@ -100,6 +113,46 @@ describe('vision recognition contract', () => {
     await expect(service.recognize(image, 'table')).resolves.toEqual({ observations: [partial], warnings: [warning] });
   });
 
+  it('keeps valid physical copies when another row is malformed, with an explicit partial-results warning', async () => {
+    const secondCopy = { ...observed, position: 'Seconda copia, a destra' };
+    const invalid = { ...observed, authors: Array.from({ length: 9 }, (_, index) => `Autore ${index}`) };
+    const { service, fetchMock } = withResponse(Response.json(envelope({
+      observations: [observed, invalid, secondCopy], warnings: ['Un dorso è sfocato.'],
+    })));
+    const result = await service.recognize(image, 'shelf');
+    expect(result.observations).toEqual([observed, secondCopy]);
+    expect(result.warnings[0]).toBe('Un dorso è sfocato.');
+    expect(result.warnings.join(' ')).toMatch(/Escluse 1 letture.*elementi 2/);
+    expect(result.warnings.join(' ')).toContain('Gli altri libri sono conservati');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(request.generationConfig.responseJsonSchema.properties.observations.items.properties.authors.description).toContain('At most 8');
+    expect(request.generationConfig.responseJsonSchema.properties.warnings.description).toContain('At most 12');
+    expect(request.systemInstruction.parts[0].text).toContain('at most 8 authors');
+  });
+
+  it('retains books even when some model warnings are malformed or excessive', async () => {
+    const validWarnings = Array.from({ length: 13 }, (_, index) => `Avviso ${index}`);
+    const { service } = withResponse(Response.json(envelope({
+      observations: [observed], warnings: [...validWarnings, 42, 'x'.repeat(351)],
+    })));
+    const result = await service.recognize(image, 'table');
+    expect(result.observations).toEqual([observed]);
+    expect(result.warnings.slice(0, 12)).toEqual(validWarnings.slice(0, 12));
+    expect(result.warnings).toHaveLength(13);
+    expect(result.warnings[12]).toContain('avvisi del servizio');
+    expect(result.warnings).not.toContain('Avviso 12');
+  });
+
+  it('caps oversized completed results in reading order while clearly warning about omitted books', async () => {
+    const observations = Array.from({ length: MAX_OBSERVATIONS + 2 }, (_, index) => ({ ...observed, position: `Libro ${index + 1}` }));
+    const { service, fetchMock } = withResponse(Response.json(envelope({ observations, warnings: [] })));
+    const result = await service.recognize(image, 'shelf');
+    expect(result.observations).toEqual(observations.slice(0, MAX_OBSERVATIONS));
+    expect(result.warnings.join(' ')).toContain('limite di 40 libri');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('ignores thought parts and accepts only a completed JSON result', async () => {
     const { service } = withResponse(Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [
       { thought: true, text: 'Not output JSON.' },
@@ -147,7 +200,7 @@ describe('vision recognition contract', () => {
     ['malformed JSON', { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"observations":[' }] } }] }],
     ['missing observations', envelope({ warnings: [] })],
     ['missing warnings', envelope({ observations: [] })],
-    ['too many observations', envelope({ observations: Array.from({ length: MAX_OBSERVATIONS + 1 }, () => observed), warnings: [] })],
+    ['an excessive response array', envelope({ observations: Array.from({ length: 201 }, () => observed), warnings: [] })],
     ['empty response text', { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '' }] } }] }],
   ])('fails explicitly for %s, never returning a fake empty success', async (_name, response) => {
     const { service } = withResponse(Response.json(response));

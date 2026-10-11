@@ -97,7 +97,7 @@ describe('HTTP access and validation', () => {
   it('reports missing recognition configuration and allows catalogue search without an AI key', async () => {
     const app = await launch({ recognitionReady: false });
     const health = await fetch(app.baseUrl + '/api/health');
-    expect(await health.json()).toEqual({ recognitionReady: false, accessRequired: false, studioReady: false });
+    expect(await health.json()).toEqual({ recognitionReady: false, accessRequired: false });
     expect(health.headers.get('cache-control')).toBe('no-store');
     const response = await app.post('/api/scan', scan);
     expect(response.status).toBe(503);
@@ -111,7 +111,7 @@ describe('HTTP access and validation', () => {
   it.each([undefined, '', 'too-short'])('fails closed in production with missing or inadequate access token (%s)', async (token) => {
     const app = await launch({ production: true, accessToken: token });
     const health = await fetch(app.baseUrl + '/api/health');
-    expect(await health.json()).toEqual({ recognitionReady: false, accessRequired: true, studioReady: false });
+    expect(await health.json()).toEqual({ recognitionReady: false, accessRequired: true });
     for (const [path, payload] of [['/api/scan', scan], ['/api/search', { query: 'Umberto Eco' }]] as const) {
       const response = await app.post(path, payload);
       expect(response.status).toBe(503);
@@ -285,7 +285,7 @@ describe('explicit vision connection checks', () => {
     const app = await launch({ production: true, accessToken, checkVision });
     const health = await fetch(app.baseUrl + '/api/health');
     expect(health.status).toBe(200);
-    expect(await health.json()).toEqual({ recognitionReady: true, accessRequired: true, studioReady: false });
+    expect(await health.json()).toEqual({ recognitionReady: true, accessRequired: true });
     expect(checkVision).not.toHaveBeenCalled();
     expect(app.recognize).not.toHaveBeenCalled();
   });

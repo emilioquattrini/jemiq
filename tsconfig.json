@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
@@ -10,7 +14,34 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "vite/client"]
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "allowJs": true,
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
   },
-  "include": ["src", "server", "shared", "tests", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "server",
+    "shared",
+    "tests",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "app",
+    "db",
+    "cloudflare-env.d.ts",
+    "next-env.d.ts",
+    "vite.client.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "examples"
+  ]
 }

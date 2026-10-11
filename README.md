@@ -1,207 +1,114 @@
 # Jemiq
 
-**Fotografa i libri. Controlla il catalogo. Crea un’immagine per la tua lettura.**
+**Fotografa. Controlla. Esporta.**
 
-Web app in italiano con due percorsi: **Catalogo** trasforma una foto di scaffali o tavoli di libri in un elenco verificabile; **Studio** compone la copertina fotografata di un singolo libro con un’ambientazione per una recensione o un post. Progettata per uso personale o per un piccolo gruppo di lavoro in libreria, su una singola istanza del server.
+Jemiq trasforma la foto di un tavolo o di uno scaffale di libri in un catalogo modificabile: titolo, autore, ISBN quando riscontrato, editore e altri metadati disponibili. L’interfaccia è in italiano e segue il brand book Jemiq: colore #172A31, accento #F36B4F, logo originale e Noto Sans servito localmente.
 
-## Stato del progetto
+## Il prodotto
 
-Il repository originale, verificato il 10 ottobre 2026, conteneva soltanto il README di Google AI Studio e un unico commit su `main`. Questa è una nuova implementazione del flusso richiesto; non è stato possibile correggere sorgenti preesistenti perché non erano presenti.
+1. Scatta una foto con la fotocamera o scegli un’immagine JPEG, PNG o WebP.
+2. Seleziona **Scaffale** o **Tavolo** e avvia la lettura.
+3. I libri compaiono progressivamente. Controlla le corrispondenze, scegli un’edizione quando necessario o modifica i dati.
+4. Esporta l’elenco selezionato in **CSV o Excel**. Crea un **backup JSON** per trasferire l’intero archivio, comprese le foto.
 
-I flussi software sono implementati e coperti da test automatici. **Il riconoscimento operativo è riuscito il 10 ottobre 2026** sul commit `79b3bcb`: dall’app in produzione una chiamata Gemini reale ha letto titolo e autore da una copertina sintetica e completato il catalogo. [Esito e limiti della prova](docs/VALIDATION.md#prova-operativa-del-riconoscimento).
+L’app contiene esclusivamente il riconoscimento fotografico e la gestione del catalogo. La funzione di creazione di immagini per social è stata rimossa su richiesta del proprietario.
 
-**L’accuratezza su fotografie di libri fisici e la generazione delle ambientazioni Studio restano da collaudare** con un campione controllato. La prova sulla copertina sintetica non è un benchmark di riconoscimento. La demo del catalogo è esplicita e marcata anche nei file esportati; non sostituisce mai una chiamata fallita. Studio può proporre un’atmosfera semplice dichiarata quando mancano dati o un servizio utilizzabile, ma non mostra immagini simulate come generazioni riuscite.
+### ISBN e affidabilità
 
-## Funzioni
+Un ISBN non viene inventato a partire dal titolo. Lo stato **ISBN riscontrato** richiede un ISBN visibile valido e metadati coerenti. Una scelta esplicita dell’utente è marcata **Confermato da te**. Le altre righe restano **Da verificare** o **Da completare**.
 
-### Catalogo
+Un errore su un singolo libro nella risposta AI non elimina gli altri libri validi. Gli avvisi restano nel catalogo e negli export. Un’indisponibilità di Google Books o Open Library non diventa una ricerca riuscita senza risultati: il problema è segnalato e i dati visibili nella foto sono mantenuti.
 
-- Scatto tramite fotocamera del telefono o caricamento di una foto.
-- Anteprima, rotazione e ricodifica locale in JPEG con lato lungo massimo 3200 px.
-- Una chiamata Gemini per leggere le informazioni visibili, senza inventare i dati mancanti.
-- Ricerca delle singole edizioni in Google Books e, quando necessario, Open Library.
-- Risultati progressivi, annullamento, errori espliciti e conservazione delle righe già ricevute.
-- Revisione dell’edizione, ricerca manuale, modifica dei dati e quantità esplicita.
-- Segnalazione di possibili duplicati, senza accorparli né incrementare la quantità.
-- Cronologia in IndexedDB, senza account e senza sincronizzazione fra dispositivi.
-- Excel `.xlsx` e CSV con ISBN, titolo, autore, editore, pubblicazione, lingua, pagine, quantità, stato, fonte e note.
+La demo è un esempio dichiarato, incluso nei file esportati. Non sostituisce automaticamente una scansione fallita. L’accuratezza dipende da luce, dimensione dei caratteri, sovrapposizioni e porzione di copertina o dorso visibile.
 
-### Studio
+## Due modalità di esecuzione
 
-- Un percorso per un solo libro, avviabile da **Studio** o dalla scheda di un libro nel catalogo.
-- Foto della copertina e ritaglio con quattro angoli per correggere la prospettiva nel browser.
-- Identificazione del libro e proposta modificabile con tre stili: **Atmosferico**, **Essenziale**, **Cinematografico**.
-- Contesto da descrizione e categorie della scheda bibliografica, con fonti, mood personale e massimo tre elementi decorativi.
-- Regola iniziale senza spoiler e separazione fra riferimenti al catalogo, indicazioni del lettore e scelte di stile. La proposta resta da controllare prima della generazione.
-- Una chiamata per creare lo sfondo; copertina originale composta localmente e download JPEG **1080 × 1350 px** per il post o **1080 × 1920 px** per la storia. Il cambio formato riutilizza lo stesso sfondo, senza un’altra chiamata AI.
-- Fino a 20 progetti in IndexedDB, separati dai cataloghi; recupero delle richieste senza reinviare automaticamente una generazione.
+| Modalità | Applicazione | Archivio | Accesso |
+| --- | --- | --- | --- |
+| Hosting Sites | React/Vinext e Worker Cloudflare | D1 per cataloghi, R2 per fotografie | Identità verificata dalla piattaforma, cataloghi separati per account |
+| Server autonomo | React/Vite ed Express su Node 24 | Directory persistente `JEMIQ_DATA_DIR` | Codice di accesso privato; archivio condiviso della singola installazione |
 
-La copertina non viene inviata al generatore dello sfondo: ritaglio e composizione usano la foto nel browser. Il ritaglio intermedio è PNG; raddrizzamento, ridimensionamento e JPEG finale ricampionano i pixel, senza ridisegnare testo o grafica del libro. Non vengono ricostruite parti nascoste. [Uso, architettura e limiti di Studio](docs/STUDIO.md).
+Il codice API, il motore di lettura e le regole bibliografiche sono condivisi. **Render non è richiesto.** La modalità Node può essere spostata su un server o un container compatibile, senza riscrivere il prodotto.
 
-## Identità visiva
+L’indipendenza dal servizio di hosting non elimina la necessità di un modello AI: il riconoscimento usa Gemini via API; i metadati sono ricercati su Google Books e Open Library. Demo, inserimento manuale ed export restano disponibili senza chiamate AI.
 
-Catalogo e Studio applicano il brand book Jemiq 1.0 fornito dal proprietario: logo dai tracciati originali, colore principale `#172A31`, accento `#F36B4F` e font **Noto Sans** distribuito dal server dell’app, senza richieste a Google Fonts. I [token originali JSON](docs/brand/design-tokens.json) e le [variabili CSS](src/design-tokens.css) definiscono colori, tipografia, spaziature, focus e dimensioni dei controlli. La [licenza OFL dei font](public/fonts/OFL.txt) è inclusa nel repository.
+## Salvataggio e backup
 
-## La regola sugli ISBN
+Il catalogo viene scritto prima nella copia locale del browser e sincronizzato con l’archivio del server. La UI distingue salvataggio confermato, operazioni in attesa, errore e conflitto con un’altra modifica. I cataloghi di account diversi usano archivi locali separati. Le API controllano l’identità autenticata e rifiutano un proprietario diverso da quello catturato dal client.
 
-Un titolo riconosciuto non identifica automaticamente la sua edizione. Jemiq non prende il primo ISBN di una ricerca e non lo presenta come verificato.
+La cronologia carica i metadati; la foto completa viene recuperata all’apertura del catalogo o durante il backup. Gli aggiornamenti usano una revisione del server per evitare sovrascritture silenziose. Un backup JSON include foto, libri, selezioni e avvisi. Un’importazione con identificativi già esistenti crea nuove copie.
 
-| Stato | Significato | ISBN nell’export |
-| --- | --- | --- |
-| ISBN riscontrato | Codice letto nella foto, checksum valido, presente nel catalogo e coerente con gli altri dati osservati | Compilato |
-| Confermato da te | Edizione scelta o dati confermati esplicitamente dall’utente | Compilato se presente e valido |
-| Da verificare | Esistono edizioni candidate, ma la foto non prova quale sia quella corretta | Vuoto; proposta separata |
-| Da completare | Dati poco leggibili, libro fuori catalogo o cataloghi indisponibili | Vuoto |
+**Un nuovo dominio non può leggere l’IndexedDB del vecchio dominio.** I vecchi cataloghi presenti soltanto nel browser della precedente installazione vanno esportati da quell’installazione. Se è disponibile solo CSV/Excel, quei file restano consultabili ma non ricostruiscono automaticamente le foto e tutte le informazioni interne. La migrazione locale esplicita dell’app nuova riguarda i dati presenti sul medesimo dominio; non accede alla memoria di altri siti.
 
-Anche “ISBN riscontrato” è un riscontro software, non una garanzia assoluta: il modello può leggere male una cifra e i cataloghi possono contenere errori. Per gli ordini controllare la copia fisica. Una copertina simile non è prova dell’edizione.
+## Avvio autonomo
 
-Titolo e autori leggibili devono trovare riscontro nella scheda. Contraddizioni su editore o lingua, oppure un ISBN associato esplicitamente a un ebook, richiedono revisione. I dati di un’edizione candidata non vengono copiati nel record osservato prima del riscontro o della conferma dell’utente; gli ISBN aggregati di un’opera Open Library non identificano una singola edizione.
-
-Gli ISBN-10 sono verificati e convertiti a ISBN-13. XLSX salva l’ISBN come testo. Il CSV usa UTF-8 con BOM, separatore `;`, quoting e neutralizzazione delle formule; Excel può comunque scegliere una visualizzazione numerica in importazione, quindi XLSX è preferibile.
-
-## Avvio locale
-
-Usare Node.js **24**, la versione verificata e configurata anche su Render.
+Requisito: **Node.js 24**.
 
 ```bash
 npm ci
 cp .env.example .env
-npm run dev
+npm run dev:standalone
 ```
 
-Apri `http://localhost:3000`. Inserisci `GEMINI_API_KEY` nel file `.env` per configurare riconoscimento e proposta testuale; la stessa chiave viene usata anche per le immagini Studio, salvo una chiave dedicata. Senza chiavi restano disponibili demo, inserimento manuale, cronologia, esportazione, ritaglio Studio e proposte semplici dichiarate; le foto non vengono analizzate e gli sfondi AI non vengono generati.
+Apri `http://localhost:3000`. Configura `GEMINI_API_KEY` in `.env` e un `JEMIQ_ACCESS_TOKEN` casuale di almeno 16 caratteri prima della produzione. Non inserire i segreti in Git o nei file pubblici del browser.
 
-“Scatta una foto” dipende dal supporto del browser e su computer può aprire il selettore di file. È sempre disponibile “Carica foto”. HEIC/HEIF funziona solo nei browser che lo decodificano; altrimenti viene richiesto JPEG, PNG o WebP.
-
-## Configurazione
-
-Le chiavi restano sul server. **Non usare prefissi `VITE_` per i segreti e non inserirli nel codice o in GitHub.**
-
-| Variabile | Uso |
-| --- | --- |
-| `GEMINI_API_KEY` | Chiave server per riconoscimento e proposta Studio; usata anche per gli sfondi se manca la chiave dedicata |
-| `GEMINI_MODEL` | Modello per lettura delle foto e proposta testuale con JSON strutturato; predefinito `gemini-3.8-flash` |
-| `GEMINI_IMAGE_API_KEY` | Facoltativa: chiave separata per la generazione delle immagini Studio |
-| `GEMINI_IMAGE_MODEL` | Modello degli sfondi, predefinito `gemini-nano-banana-2.1` |
-| `STUDIO_ENABLED` | `false` disabilita le nuove generazioni di sfondi; progetti locali e preparazione restano disponibili |
-| `GOOGLE_BOOKS_API_KEY` | Chiave dedicata per identificare l’app e avere una quota Books; raccomandata per un servizio operativo |
-| `JEMIQ_ACCESS_TOKEN` | Codice di accesso di almeno 16 caratteri, obbligatorio in produzione |
-| `APP_ORIGIN` | Origine pubblica completa, per esempio `https://jemiq.example.com` |
-| `PORT` | Porta del server, predefinita 3000 |
-| `HOST` | `127.0.0.1` in locale; `0.0.0.0` per un container |
-| `TRUST_PROXY` | Numero esatto di proxy fidati davanti all’app; 0 predefinito |
-
-Il codice di accesso protegge l’uso del servizio a pagamento, si inserisce per sessione e non è la chiave Gemini. È una protezione per un piccolo gruppo, non un sistema di account. I cataloghi restano nel browser di ogni persona.
-
-Google Books può limitare le chiamate senza chiave: in una verifica reale il 10 ottobre 2026 ha risposto 429 e il fallback Open Library ha risolto l’ISBN di prova. Per la produzione configurare una chiave Books e verificare le quote del proprio progetto.
-
-## Build e produzione
+Produzione:
 
 ```bash
-npm run build
+npm run build:standalone
 npm start
 ```
 
-`npm start` imposta esplicitamente la produzione e serve frontend e API dallo stesso processo. Occorre un servizio Node o un container con HTTPS. **GitHub Pages da solo non è sufficiente**, perché il riconoscimento richiede un server che custodisca la chiave.
+Il risultato autonomo è in `dist-node/`; il risultato per Sites è separato in `dist/`. Con Docker:
 
 ```bash
-docker build -t jemiq .
-docker run --rm -p 3000:3000 --env-file .env -e HOST=0.0.0.0 jemiq
+docker compose up --build -d
 ```
 
-Configurare le chiavi, `JEMIQ_ACCESS_TOKEN` e `APP_ORIGIN` nelle impostazioni del servizio di hosting. `.env` è escluso dall’immagine e il container viene eseguito come utente non root. Il Dockerfile è fornito come percorso di distribuzione; la sua build va verificata nell’ambiente Docker di destinazione.
+Il volume `jemiq_data` conserva cataloghi e fotografie. Il servizio è esposto su `127.0.0.1:3000`. Per usarlo da telefono configura un reverse proxy HTTPS e `APP_ORIGIN` con l’URL effettivo: la fotocamera richiede un contesto sicuro. Imposta `TRUST_PROXY` solo per il numero reale di proxy fidati. La modalità file è progettata per un solo processo Node; non condividere la directory tra più istanze.
 
-In produzione, se il codice di accesso manca o è troppo corto, le API restano chiuse. `/api/health` espone `recognitionReady`, `accessRequired` e `studioReady`, senza chiavi o dettagli dell’account. Questi campi indicano la configurazione applicativa: **non verificano validità delle credenziali, accesso ai modelli, quote o credito**.
+## Configurazione
 
-### Avvio guidato su Render
+| Variabile | Uso |
+| --- | --- |
+| `GEMINI_API_KEY` | Segreto per il riconoscimento fotografico |
+| `GEMINI_MODEL` | Modello, predefinito `gemini-3.8-flash` |
+| `GOOGLE_BOOKS_API_KEY` | Facoltativa, chiave dedicata per le ricerche Google Books |
+| `JEMIQ_ACCESS_TOKEN` | Accesso al server autonomo, almeno 16 caratteri |
+| `APP_ORIGIN` | Origine HTTPS ammessa per le richieste |
+| `JEMIQ_DATA_DIR` | Directory persistente del server Node, predefinita `.data` |
+| `HOST`, `PORT`, `TRUST_PROXY` | Rete del server Node |
+| `SETTINGS_ENCRYPTION_KEY` | Chiave server per cifrare le configurazioni salvate su Sites |
+| `JEMIQ_SERVICE_ACCESS_ENABLED` | Accesso tecnico isolato tramite token su Sites; disattivato normalmente |
 
-**[Configura Jemiq su Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Femilioquattrini%2Fjemiq%2Ftree%2Fcodex%2Fjemiq-product)**
-
-Il Blueprint [`render.yaml`](render.yaml) seleziona un servizio Node 24 a Francoforte sul piano Free per le prime prove. Chiede `GEMINI_API_KEY` e un `JEMIQ_ACCESS_TOKEN` di almeno 16 caratteri direttamente nel pannello Render; l'URL pubblico viene configurato automaticamente. Nessun segreto va aggiunto al file YAML.
-
-Il link usa il ramo `codex/jemiq-product`. Gli aggiornamenti automatici sono disabilitati. Il piano Free si sospende dopo 15 minuti senza traffico e richiede circa un minuto per riattivarsi; è adatto al collaudo, mentre l'uso quotidiano richiede un servizio sempre attivo. L'API Gemini ha costi e quote separati.
-
-**[Istruzioni complete e gestione dei segreti](docs/RENDER.md)**. La configurazione Studio riutilizza i segreti già presenti; il modello immagini è predefinito nel codice. Il riconoscimento usa `responseMimeType` e `responseJsonSchema` come l’SDK ufficiale Google e omette `candidateCount`, non supportato da Gemini 3.8. Per applicare le correzioni usa **Manual Deploy → Deploy latest commit**, poi verifica una scansione reale. Il commit `79b3bcb`, con schema di generazione compatto e controlli Zod conservati, è stato distribuito su Render e ha completato la scansione di una copertina sintetica tramite Gemini reale. Le precedenti prove fino a `3c78d3b` erano state rifiutate; la loro cronologia è conservata nel [protocollo di collaudo](docs/VALIDATION.md). **Come funziona → Verifica connessione AI** avvia un controllo esplicito di solo testo, riuscito sul commit `33e95af`. Le generazioni Studio con il provider reale restano da verificare.
+Nel pannello **Impostazioni** del sito privato la configurazione esistente è visibile senza mostrare le chiavi. Una nuova chiave viene salvata solo dopo una verifica esplicita riuscita. La verifica è una breve chiamata di testo: non sostituisce il collaudo di una fotografia. Il server autonomo legge le proprie chiavi dall’ambiente e presenta il pannello in sola lettura.
 
 ## Limiti operativi
 
-- Una foto per catalogo; ogni scansione è un’unità di lavoro separata.
-- Massimo 40 rilevamenti per foto con avviso al limite; non significa che siano stati individuati tutti i libri presenti.
-- File locale fino a 32 MB, ricodifica fino a 4 MiB; il server rifiuta immagini oltre 8 MiB decodificati.
-- Due scansioni simultanee per processo, una per IP; fino a tre arricchimenti bibliografici in parallelo.
-- Timeout Gemini 60 secondi, singola richiesta ai cataloghi 8 secondi, scansione complessiva 165 secondi. L’attesa del limite Open Library precede il timeout della richiesta; ogni risposta bibliografica è limitata a 1 MiB. Nessun retry AI automatico che possa duplicare il costo.
-- Cache di 200 risposte per 15 minuti; Open Library al massimo una richiesta al secondo per istanza.
-- Dopo HTTP 429 o 503, pausa delle nuove richieste al solo catalogo interessato: 30 secondi predefiniti, oppure il valore valido di `Retry-After`, limitato a 60 secondi. Restano disponibili cache valida e altro catalogo. Nessun retry automatico; dopo la scadenza una nuova richiesta può riprovare.
-- Se entrambi i cataloghi falliscono, la ricerca manuale restituisce un errore temporaneo esplicito; l’arricchimento conserva invece i dati osservati e le note sulle fonti indisponibili.
-- Cache, pause dei provider e rate limit in memoria: per più istanze serve un limitatore condiviso. Questa versione è pensata per un processo singolo.
-- Il riconoscimento richiede rete. La cronologia non è un backup: esportare prima di cancellare i dati del browser.
-- Quantità iniziale 1 per riga rilevata; nessuna stima delle copie nascoste o della giacenza.
+Il server effettua una singola chiamata AI per scansione, senza retry AI automatici. Le ricerche bibliografiche hanno timeout, concorrenza limitata, cache con limite di memoria e interruzione su cancellazione. La pipeline conserva i risultati già arrivati anche in caso di errore successivo.
 
-Studio aggiunge una generazione di sfondo alla volta per processo, fino a 10 nuove richieste per IP ogni 10 minuti e 40 per processo ogni ora. La proposta testuale ha un limite totale di 45 secondi; il generatore 150 secondi e il job 180 secondi. Il processo di produzione conserva al massimo 4 sfondi, circa 32 MiB di stringhe, per non più di 30 minuti; le registrazioni leggere delle richieste restano fino a 24 ore, con massimo 256 job. Memoria esaurita o scadenza possono rendere indisponibile un risultato prima del download.
+I budget predefiniti sono 20 scansioni ogni 10 minuti per account/IP e 100 all’ora complessive. Le verifiche AI hanno limiti separati. Su Sites i contatori sono atomici in D1 e persistono tra riavvii; sul server Node i contatori e il limite di concorrenza appartengono al singolo processo e si azzerano al riavvio. Questi sono limiti di richieste, non un tetto monetario garantito: costi e quote dipendono dall’account Gemini.
 
-I job sono isolati con una sessione browser firmata, oltre al codice di accesso. Il progetto locale conserva l’identificativo prima del POST e recupera tramite GET; non esiste un retry AI automatico. **Riavviare il processo perde job, sessioni firmate e limiti in memoria**. Questa è una distribuzione privata con una sola istanza; non è una coda durevole né un limite di spesa persistente. [Dettagli operativi Studio](docs/STUDIO.md#richieste-costi-e-recupero).
+Ogni catalogo ha al massimo 1 MiB di metadati e ogni fotografia 8 MiB. Le immagini inviate sono ricodificate e ridimensionate nel browser. Il server non registra immagini, chiavi, testo integrale delle risposte del provider o dati dell’account negli errori pubblici.
 
-## Dati
+## Dati e riservatezza
 
-Per il riconoscimento, la foto viene ricodificata dal browser senza i metadati originali, poi inviata al server Jemiq e a Gemini. Per generare lo sfondo Studio vengono inviati il contesto testuale del libro e le indicazioni visive; la copertina da comporre resta nel browser. Gli sfondi ricevuti sono conservati temporaneamente nella memoria del server con i limiti indicati sopra. Jemiq non scrive i contenuti su disco nel server e non registra il contenuto delle richieste. La conservazione applicata dal provider dipende dall’account e dal piano Google; l’assenza di un archivio permanente Jemiq non implica la stessa politica del provider.
+La foto preparata viene inviata a Jemiq e a Gemini per il riconoscimento. Foto e catalogo vengono conservati nell’archivio privato dell’installazione e nella copia locale del browser. Titoli, autori e ISBN necessari alle ricerche vengono inviati ai cataloghi bibliografici. La conservazione applicata dai provider dipende dalle loro condizioni e dalla configurazione dell’account.
 
-Titoli, autori e ISBN necessari alla ricerca vengono inviati ai cataloghi. Le copertine bibliografiche remote sono ammesse solo dai domini di Google Books e Open Library. Foto, cataloghi e progetti Studio sono memorizzati localmente in IndexedDB; la cancellazione dalla cronologia rimuove la copia locale, non i file già esportati.
+Eliminare un catalogo rimuove la copia attiva locale e quella sul server, compresa la foto; i file esportati o eventuali backup esterni restano sotto il controllo dell’utente. Un errore di sincronizzazione deve essere risolto prima di considerare completata una cancellazione remota.
 
-## Verifiche
+## Sviluppo e verifica
 
 ```bash
 npm run typecheck
 npm test
 npm run build
-npm audit --omit=dev
+npm run build:standalone
+npm audit --omit=dev --audit-level=high
 ```
 
-Test di checksum, conflitti di edizione/autore/editore/lingua/formato, fallback, limiti, JSON malformato, timeout, cancellazione, accesso, stream interrotti, export e persistenza. Studio aggiunge prove di fonti del brief, contratti del modello immagini, geometria, conservazione della copertina, sessioni firmate, isolamento e idempotenza dei job. L’XLSX viene scritto e riaperto per verificare i tipi delle celle.
+La CI verifica entrambe le build. Le prove coprono checksum ISBN, corrispondenze e conflitti tra edizioni, risposta AI parzialmente invalida, timeout, cancellazione, flusso NDJSON reale su HTTP, isolamento degli account, concorrenza degli aggiornamenti, backup e import, CSV ed Excel riaperti per verificare i dati.
 
-L’override di `uuid` a 11.1.1 risolve la dipendenza vulnerabile di ExcelJS conservando l’interfaccia CommonJS `v4`. L’esportazione è verificata con round trip del workbook. ExcelJS viene caricato solo quando si richiede XLSX.
+Per Sites: lo schema è in `db/schema.ts`; genera e controlla le migrazioni con `npm run db:generate`. Le migrazioni in `drizzle/` vengono applicate dalla pubblicazione. Non creare tabelle durante le richieste. I binding richiesti sono `DB` e `BUCKET`, dichiarati in `.openai/hosting.json`.
 
-Esito del collaudo software del 10 ottobre 2026: **374 test superati in 14 file**, TypeScript e build di produzione riusciti, incluse le regressioni sul formato REST e sui parametri ammessi dai modelli. `npm audit --omit=dev --audit-level=high` non segnala vulnerabilità note.
-
-### Verifica operativa del Catalogo
-
-Su [Jemiq in produzione](https://jemiq-wt9a.onrender.com/), il commit [`79b3bcb`](https://github.com/emilioquattrini/jemiq/commit/79b3bcb8c77bb287840cc842ebae8a7eb32e392a) ha completato la modalità **Tavolo** con `book-test.png` (1200 × 1600 px), lo stesso file sintetico prima rifiutato. La UI ha mostrato **«Risultati disponibili»**, durata **12 s**, una riga **PRIDE AND PREJUDICE / JANE AUSTEN** e ISBN lasciato da verificare, con stato **«Da completare»**. Nell’immagine non è stampato un ISBN. È una richiesta Gemini reale su materiale sintetico, non una misura dell’accuratezza su fotografie di libri fisici. [CI del commit](https://github.com/emilioquattrini/jemiq/actions/runs/38049423861) · [Deploy ed evidenze operative](docs/VALIDATION.md#prova-operativa-del-riconoscimento).
-
-### Verifiche UI Studio
-
-In Chromium sono verificati il percorso grafico su immagini di prova, la conservazione di pixel e trasparenza nel PNG intermedio, il ritaglio prospettico e i due export JPEG. Il flusso Studio completo è stato provato su desktop 1440 × 1050 e viewport mobile 390 × 844 e 320 × 740, con provider simulato: salvataggio delle bozze, doppio clic con un solo POST, recupero dopo perdita della risposta o ricarica durante la generazione, cancellazione e download Post/Storia. I tre passaggi non presentano overflow orizzontale; non sono stati rilevati errori JavaScript. Qualità, tempi e costo delle immagini AI reali restano da misurare. [Protocollo ed evidenze](docs/VALIDATION.md).
-
-## Anteprima
-
-Schermata della UI Studio in esecuzione, con copertina sintetica e ambientazione di collaudo. Illustra il flusso e la composizione locale; non è una generazione Gemini reale:
-
-![Jemiq Studio su desktop con immagine di collaudo](docs/screenshots/jemiq-studio-result-desktop.png)
-
-[Avvio Studio](docs/screenshots/jemiq-studio-start-desktop.png) · [Ritaglio](docs/screenshots/jemiq-studio-crop-desktop.png) · [Proposta](docs/screenshots/jemiq-studio-brief-desktop.png) · [Studio su mobile](docs/screenshots/jemiq-studio-result-mobile.png)
-
-Anche le schermate della [demo del catalogo su desktop](docs/screenshots/jemiq-demo-desktop.png) e [mobile](docs/screenshots/jemiq-demo-mobile.png) mostrano il marchio aggiornato, con dati dimostrativi espliciti. [Schermata iniziale desktop](docs/screenshots/jemiq-home-desktop.png) · [Schermata iniziale mobile](docs/screenshots/jemiq-home-mobile.png).
-
-## Struttura
-
-| Percorso | Responsabilità |
-| --- | --- |
-| `src/` | Interfaccia, immagini, persistenza ed export |
-| `shared/` | Tipi, schemi e controlli ISBN |
-| `server/vision.ts` | Lettura multimodale con schema e limiti |
-| `server/catalog.ts` | Ricerca e riscontro delle singole edizioni |
-| `server/studio-brief.ts` | Proposta visiva da fonti e indicazioni del lettore, con fallback esplicito |
-| `server/studio-image.ts` | Singola richiesta di generazione dello sfondo e validazione della risposta |
-| `server/studio-jobs.ts` | Job privati in memoria, cancellazione e idempotenza |
-| `src/lib/studio-*.ts` | Ritaglio, composizione, API e persistenza locale dello Studio |
-| `docs/STUDIO.md` | Uso, configurazione, limiti e identità visiva Studio |
-| `server/app.ts` | API, streaming, accesso e limiti |
-| `tests/` | Test senza chiavi o chiamate AI reali |
-
-## Fonti tecniche
-
-- [ISBN Agency: assegnazione ISBN](https://www.isbn-international.org/node/88)
-- [Gemini: modelli](https://ai.google.dev/gemini-api/docs/models)
-- [Gemini: immagini](https://ai.google.dev/gemini-api/docs/generate-content/image-understanding)
-- [Gemini: output strutturati](https://ai.google.dev/gemini-api/docs/generate-content/structured-output)
-- [Google Books: API](https://developers.google.com/books/docs/v1/using)
-- [Open Library: opere ed edizioni](https://openlibrary.org/dev/docs/api/search)
-- [Open Library: limiti](https://openlibrary.org/developers/api)
+Vedi [architettura e distribuzione](docs/DEPLOYMENT.md) e [protocollo di collaudo](docs/VALIDATION.md). Le schermate storiche in `docs/screenshots/` illustrano la precedente UI di riconoscimento: non costituiscono un collaudo della nuova distribuzione.

@@ -2,10 +2,13 @@ import type { ScanSession } from '../../shared/types';
 import { STATUS_LABELS } from '../../shared/types';
 import { toIsbn13 } from '../../shared/isbn';
 
-export const EXPORT_COLUMNS = ['ISBN', 'Titolo', 'Autore', 'Editore', 'Data pubblicazione', 'Lingua', 'Pagine', 'Quantità', 'Stato', 'ISBN suggerito (da verificare)', 'Fonte', 'URL fonte', 'Testo letto nella foto', 'Posizione', 'Note', 'ISBN letto nella foto (non confermato)'];
+export const EXPORT_COLUMNS = ['ISBN', 'Titolo', 'Autore', 'Editore', 'Data pubblicazione', 'Lingua', 'Pagine', 'Quantità', 'Stato', 'ISBN suggerito (da verificare)', 'Fonte', 'URL fonte', 'Testo letto nella foto', 'Posizione', 'Note', 'ISBN letto nella foto (non confermato)', 'Avvisi del catalogo'];
 type Cell = string | number;
 
 export function exportRows(session: ScanSession): Cell[][] {
+  // Repeat scan-wide warnings on every selected row so CSV exports and subsets
+  // retain interruptions and visibility limits without adding artificial books.
+  const warnings = session.warnings.join('\n');
   return session.books.filter(book => book.selected).map(book => {
     const confirmed = book.status === 'confirmed' || book.status === 'verified';
     const isbn = book.isbn13 ? toIsbn13(book.isbn13) : null;
@@ -17,6 +20,7 @@ export function exportRows(session: ScanSession): Cell[][] {
       book.sourceUrl ?? '', book.observation.evidence, book.observation.position,
       [session.isDemo ? 'DATI DI ESEMPIO — non provengono da un riconoscimento reale.' : '', book.notes].filter(Boolean).join(' '),
       book.observation.visibleIsbn ?? '',
+      warnings,
     ];
   });
 }
@@ -42,7 +46,7 @@ function download(blob: Blob, name: string) {
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = name;
-  document.body.append(anchor);
+  document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
@@ -60,12 +64,12 @@ export async function createWorkbook(session: ScanSession) {
   workbook.creator = 'Jemiq';
   workbook.created = new Date(session.createdAt);
   const sheet = workbook.addWorksheet(session.isDemo ? 'Esempio' : 'Libri', { views: [{ state: 'frozen', ySplit: 1 }] });
-  sheet.columns = EXPORT_COLUMNS.map((header, index) => ({ header, key: String(index), width: [20, 42, 30, 24, 20, 12, 10, 12, 24, 30, 20, 45, 45, 20, 55, 34][index] }));
+  sheet.columns = EXPORT_COLUMNS.map((header, index) => ({ header, key: String(index), width: [20, 42, 30, 24, 20, 12, 10, 12, 24, 30, 20, 45, 45, 20, 55, 34, 60][index] }));
   for (const row of exportRows(session)) sheet.addRow(row);
   sheet.getRow(1).height = 30;
   sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF252C2A' } };
-  sheet.autoFilter = { from: 'A1', to: `P${Math.max(1, sheet.rowCount)}` };
+  sheet.autoFilter = { from: 'A1', to: `Q${Math.max(1, sheet.rowCount)}` };
   sheet.eachRow((row, index) => {
     row.alignment = { vertical: 'top', wrapText: true };
     if (index > 1) {

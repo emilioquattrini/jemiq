@@ -8,3 +8,12 @@ playwright-report/
 test-results/
 *.log
 .DS_Store
+
+.sites-runtime/
+.wrangler/
+.vinext/
+.next/
+.data/
+artifacts/
+*.tsbuildinfo
+dist-node/

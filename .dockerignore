@@ -1,5 +1,12 @@
 node_modules
 dist
+dist-node
+.data
+.sites-runtime
+.wrangler
+.vinext
+.next
+artifacts
 .git
 .env
 .env.*
